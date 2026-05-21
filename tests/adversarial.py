@@ -6,26 +6,16 @@ Generates challenging test cases designed to trigger cognitive anomalies,
 then benchmarks the immune system's detection and recovery rate.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import sys
 import time
 from typing import Any
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from dotenv import load_dotenv
-
-load_dotenv()
-
-from core.logger import setup_logger
-from immune_agent import run_single_query
-
-logger = setup_logger("adversarial")
-
 # ---------------------------------------------------------------------------
-# Adversarial test cases
+# Adversarial test cases — pure data, no side effects on import
 # ---------------------------------------------------------------------------
 ADVERSARIAL_QUERIES = [
     # Infinite loop traps
@@ -119,6 +109,14 @@ ADVERSARIAL_QUERIES = [
 
 def run_benchmark() -> dict[str, Any]:
     """Run all adversarial test cases and collect statistics."""
+    # Lazy imports so ADVERSARIAL_QUERIES can be imported without side effects
+    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    from dotenv import load_dotenv
+    load_dotenv()
+    from core.logger import setup_logger
+    from immune_agent import run_single_query
+
+    logger = setup_logger("adversarial")
     results = []
     stats = {
         "total": len(ADVERSARIAL_QUERIES),
@@ -223,6 +221,12 @@ def run_benchmark() -> dict[str, Any]:
 
 
 def main():
+    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    from dotenv import load_dotenv
+    load_dotenv()
+    from core.logger import setup_logger
+
+    logger = setup_logger("adversarial")
     logger.info("Starting adversarial testing...")
     report = run_benchmark()
 

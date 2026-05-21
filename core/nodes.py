@@ -2,7 +2,6 @@
 
 import json
 import os
-import subprocess
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -113,6 +112,7 @@ def _auto_git_backup(error_pattern: str) -> None:
     """Create an automatic git checkpoint when an immune response fires."""
     if not _AUTO_BACKUP_ENABLED:
         return
+    import subprocess
     try:
         # Check if we're in a git repo
         repo_root = subprocess.run(

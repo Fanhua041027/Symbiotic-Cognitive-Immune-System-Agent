@@ -1,6 +1,8 @@
-# Symbiotic Cognitive Immune System Agent
+# Symbiotic Cognitive Immune System Agent 🧬
 
-共生认知免疫系统智能体 —— 受生物免疫系统启发的多智能体协作防御框架。
+**共生认知免疫系统智能体** —— 受生物免疫系统启发的多智能体协作防御框架。
+
+> 一个具备**自我诊断、自我修复和自我进化**能力的 AI Agent 框架。
 
 ## 核心思想
 
@@ -10,8 +12,9 @@
 |-------------|---------------|
 | 先天免疫 | 规则引擎 + 异常检测基线 |
 | 适应性免疫 | 智能体协作学习与模式识别 |
-| 免疫记忆 | 历史攻击向量缓存与快速响应 |
-| T 细胞 / B 细胞 | 不同职责的防御智能体 |
+| 免疫记忆 | ChromaDB 向量存储 + 历史抗体缓存 |
+| **T 细胞** 🛡️ | Monitor Agent — 监察主智能体的执行过程 |
+| **B 细胞 / 抗体** 💉 | Antibody Generator — 发现异常后自动生成代码补丁 |
 | 抗原识别 | 输入异常检测与分类 |
 | 免疫耐受 | 误报率动态平衡机制 |
 
@@ -45,13 +48,81 @@
 └─────────────────────────────────────────────┘
 ```
 
+### 智能体工作流程
+
+```
+用户输入 → [Worker 主智能体] → [Monitor 监察员]
+                                      │
+                       ┌────────────────┼────────────────┐
+                       ▼                ▼                ▼
+                   健康 (END)      发现异常           继续执行
+                                      │
+                            [Antibody 生成器]
+                                      │
+                            [Sandbox 验证器]
+                                      │
+                              ┌───────┘
+                              ▼
+                       重新执行（携带抗体）
+```
+
 ## 智能体分工
 
-- **哨兵 Agent** — 实时流量监控与异常信号捕获
-- **分析师 Agent** — 告警关联分析与威胁等级判定
-- **决策 Agent** — 响应策略选择与多目标权衡
-- **记忆 Agent** — 事件记录与免疫记忆维护
-- **协调 Agent** — 多智能体协作调度与信息同步
+- **Worker 主智能体** — 执行用户任务，自检认知异常
+- **Monitor T 细胞** 🛡️ — 分析执行步骤，检测死循环/逻辑矛盾
+- **Antibody 生成器** 💉 — 针对异常自动生成修复补丁
+- **Sandbox 验证器** ✅ — 验证抗体有效性，存入免疫记忆库
+
+## 快速开始
+
+### 1. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 配置 API Key
+
+```bash
+cp .env.example .env
+# 编辑 .env 填入你的 OpenAI API Key
+```
+
+### 3. 运行
+
+```bash
+# 运行内置演示（自动触发认知异常并观察免疫响应）
+python immune_agent.py
+
+# 自定义查询
+python immune_agent.py --query "写一段可能有死循环的代码"
+
+# 交互模式
+python immune_agent.py --interactive
+```
+
+## 项目结构
+
+```
+├── immune_agent.py          # 主入口 / CLI
+├── core/
+│   ├── __init__.py           # 包标记
+│   ├── state.py              # ImmunologyState 状态定义
+│   ├── memory.py             # ChromaDB 持久化免疫记忆
+│   ├── nodes.py              # 四个核心智能体节点
+│   └── workflow.py           # LangGraph 工作流图
+├── requirements.txt
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+## 进阶优化方向
+
+- **真实沙箱**: 集成 E2B 或 Docker 运行不受信任的代码
+- **多模态监测**: 分析日志文件、CPU 使用率等系统指标
+- **人类反馈回路**: 免疫系统连续失败时通知人类专家
+- **对抗训练**: 训练攻击者 Agent 测试免疫系统鲁棒性
 
 ## 许可证
 

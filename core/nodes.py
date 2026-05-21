@@ -57,6 +57,10 @@ def _resolve_llm_params() -> dict:
 def _create_llm(model_key: str, temperature: float) -> ChatOpenAI:
     """创建适配当前 Provider 的 LLM 实例。"""
     params = _resolve_llm_params()
+    api_key = params.get("api_key")
+    if not api_key:
+        logger.warning("No API key configured for provider=%s, LLM calls will fail",
+                        cfg("LLM_PROVIDER", "openai"))
     model = cfg(model_key)
     logger.info(
         "LLM init: provider=%s model=%s endpoint=%s",
@@ -66,22 +70,34 @@ def _create_llm(model_key: str, temperature: float) -> ChatOpenAI:
     return ChatOpenAI(
         model=model,
         temperature=temperature,
-        api_key=params["api_key"],
+        api_key=api_key,
         base_url=params["base_url"],
     )
 
 
 # ---------------------------------------------------------------------------
-# LLM 实例（延迟初始化，支持 provider 切换）
+# LLM 实例（惰性初始化：仅在首次调用时创建）
 # ---------------------------------------------------------------------------
-MAIN_MODEL = cfg("MAIN_LLM_MODEL", "gpt-4o")
-MONITOR_MODEL = cfg("MONITOR_LLM_MODEL", "gpt-4o-mini")
-ANTIBODY_MODEL = cfg("ANTIBODY_LLM_MODEL", "gpt-4o")
-TEMPERATURE = cfg("LLM_TEMPERATURE", 0.7)
+_llm_cache: dict[str, ChatOpenAI] = {}
 
-main_llm = _create_llm("MAIN_LLM_MODEL", TEMPERATURE)
-monitor_llm = _create_llm("MONITOR_LLM_MODEL", 0.0)
-antibody_llm = _create_llm("ANTIBODY_LLM_MODEL", 0.2)
+
+def _get_llm(role: str, model_key: str, temperature: float) -> ChatOpenAI:
+    """Get or create a lazy LLM instance for the given role."""
+    if role not in _llm_cache:
+        _llm_cache[role] = _create_llm(model_key, temperature)
+    return _llm_cache[role]
+
+
+def get_main_llm() -> ChatOpenAI:
+    return _get_llm("main", "MAIN_LLM_MODEL", cfg("LLM_TEMPERATURE", 0.7))
+
+
+def get_monitor_llm() -> ChatOpenAI:
+    return _get_llm("monitor", "MONITOR_LLM_MODEL", 0.0)
+
+
+def get_antibody_llm() -> ChatOpenAI:
+    return _get_llm("antibody", "ANTIBODY_LLM_MODEL", 0.2)
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +218,7 @@ Analyze your own reasoning for these defect patterns:
     iteration = (state.get("iteration_count") or 0) + 1
 
     try:
-        response = main_llm.invoke(full_prompt)
+        response = get_main_llm().invoke(full_prompt)
         content = response.content.strip()
     except Exception as e:
         logger.error("Worker LLM call failed: %s", e)
@@ -286,7 +302,7 @@ Examples:
 """
 
     try:
-        response = monitor_llm.invoke(prompt)
+        response = get_monitor_llm().invoke(prompt)
         content = response.content.strip()
     except Exception as e:
         logger.error("Monitor LLM call failed: %s", e)
@@ -348,7 +364,7 @@ Generate a Python code "antibody" — a self-contained patch that prevents this 
 """
 
     try:
-        response = antibody_llm.invoke(prompt)
+        response = get_antibody_llm().invoke(prompt)
         content = response.content.strip()
     except Exception as e:
         logger.error("Antibody LLM call failed: %s", e)

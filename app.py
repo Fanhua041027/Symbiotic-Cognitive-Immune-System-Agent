@@ -1,8 +1,5 @@
 """
 Streamlit Web UI for the Symbiotic Cognitive Immune System Agent.
-
-Usage:
-    streamlit run app.py
 """
 
 import json
@@ -10,11 +7,9 @@ import os
 import sys
 import time
 
-# Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
-
 load_dotenv()
 
 try:
@@ -24,183 +19,292 @@ except ImportError:
     sys.exit(1)
 
 from core.logger import setup_logger
-from core.config import get as cfg, show_summary
+from core.config import get as cfg
 from immune_agent import run_single_query
 
 logger = setup_logger("webui")
 
-st.set_page_config(
-    page_title="Immune System Agent",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="Immune System Agent", page_icon="🛡️", layout="wide")
 
 # ---------------------------------------------------------------------------
-# Sidebar configuration
+# Modern Dynamic CSS
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    * { font-family: 'Inter', -apple-system, sans-serif; }
+    .main { background: #f0f2f5; }
+    .block-container { padding: 1rem 1.5rem !important; max-width: 1400px; }
+
+    h1 { font-weight: 800; font-size: 1.6rem; letter-spacing: -0.03em; color: #0f1419; margin: 0 !important; }
+    h2 { font-weight: 700; font-size: 1.2rem; color: #0f1419; margin: 0 0 0.5rem 0 !important; }
+    h3 { font-weight: 600; font-size: 1rem; color: #0f1419; }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f1419 0%, #1a1d23 100%);
+        border-right: none;
+    }
+    section[data-testid="stSidebar"] .block-container { padding: 1.2rem 1rem !important; }
+    section[data-testid="stSidebar"] .st-emotion-cache-1mi2ry5 { background: transparent; }
+    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 { color: #ffffff; }
+    section[data-testid="stSidebar"] label { color: rgba(255,255,255,0.6) !important; font-size: 0.75rem !important; font-weight: 500 !important; text-transform: uppercase; letter-spacing: 0.04em; }
+
+    /* Sidebar card sections */
+    .sidebar-section {
+        background: rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 0.8rem 1rem;
+        margin-bottom: 0.6rem;
+        border: 1px solid rgba(255,255,255,0.04);
+    }
+    .sidebar-section label { color: rgba(255,255,255,0.5) !important; font-size: 0.65rem !important; }
+
+    /* Hero Card */
+    .hero-card {
+        background: linear-gradient(135deg, #0f1419 0%, #1a1d23 100%);
+        border-radius: 14px;
+        padding: 1.2rem 1.5rem;
+        margin-bottom: 1rem;
+        color: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .hero-card h1 { color: white; font-size: 1.4rem; }
+    .hero-card p { color: rgba(255,255,255,0.6); font-size: 0.85rem; margin: 0.2rem 0 0 0; }
+
+    /* Stat cards row */
+    .stat-row { display: flex; gap: 0.6rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .stat-card {
+        flex: 1; min-width: 140px;
+        background: white; border-radius: 12px;
+        padding: 0.8rem 1rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        border: 1px solid #e8eaed;
+    }
+    .stat-card .label { font-size: 0.7rem; font-weight: 600; color: #8e98a3; text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-card .value { font-size: 1.3rem; font-weight: 700; color: #0f1419; letter-spacing: -0.02em; margin-top: 0.15rem; }
+
+    /* Metric overrides */
+    [data-testid="stMetric"] { background: transparent; border: none; box-shadow: none; padding: 0 !important; }
+    [data-testid="stMetric"] label { font-size: 0.7rem !important; font-weight: 600 !important; color: #8e98a3 !important; text-transform: uppercase; letter-spacing: 0.04em; }
+    [data-testid="stMetric"] [data-testid="stMetricValue"] { font-size: 1.3rem !important; font-weight: 700 !important; color: #0f1419 !important; letter-spacing: -0.02em; }
+
+    .stat-card [data-testid="stMetric"] label { color: #8e98a3 !important; }
+
+    /* Cards */
+    .card {
+        background: white; border-radius: 12px; padding: 1rem 1.2rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04); border: 1px solid #e8eaed;
+        margin-bottom: 0.8rem;
+    }
+
+    /* Tags / Chips */
+    .tag {
+        display: inline-block; background: #f0f2f5; border-radius: 6px;
+        padding: 0.25rem 0.7rem; font-size: 0.75rem; font-weight: 500;
+        color: #536471; margin: 0.15rem;
+    }
+    .tag-active { background: #e8f0fe; color: #1a73e8; }
+
+    /* Buttons */
+    .stButton button {
+        border-radius: 8px !important; font-weight: 600 !important;
+        font-size: 0.85rem !important; border: none !important;
+        padding: 0.4rem 1rem !important; transition: all 0.15s ease !important;
+    }
+    .stButton button[kind="primary"] { background: #1a73e8 !important; color: white !important; }
+    .stButton button[kind="primary"]:hover { background: #1557b0 !important; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(26,115,232,0.3) !important; }
+    .stButton button[kind="secondary"] { background: #e8eaed !important; color: #0f1419 !important; }
+    .stButton button[kind="secondary"]:hover { background: #d2d5d9 !important; }
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        background: white; border-radius: 10px; padding: 4px;
+        gap: 2px; border: 1px solid #e8eaed;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 7px; padding: 0.35rem 1rem; font-size: 0.8rem;
+        font-weight: 500; color: #536471;
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] { background: #0f1419; color: white; }
+
+    /* Inputs */
+    .stTextInput input, .stTextArea textarea {
+        border-radius: 8px !important; border: 1px solid #dadce0 !important;
+        font-size: 0.9rem !important;
+    }
+    .stTextInput input:focus, .stTextArea textarea:focus {
+        border-color: #1a73e8 !important; box-shadow: 0 0 0 3px rgba(26,115,232,0.12) !important;
+    }
+    .stSelectbox > div > div { border-radius: 8px !important; border-color: #dadce0 !important; }
+
+    /* Progress */
+    .stProgress > div > div { border-radius: 100px !important; background: #e8eaed !important; }
+    .stProgress > div > div > div { background: #1a73e8 !important; border-radius: 100px !important; }
+
+    /* Dataframe */
+    [data-testid="stDataFrame"] { border-radius: 10px !important; overflow: hidden; border: 1px solid #e8eaed; }
+
+    /* Expander */
+    .stExpander { border-radius: 8px !important; border: 1px solid #e8eaed !important; margin-bottom: 0.35rem; }
+    .stExpander summary { font-weight: 500; }
+
+    /* Alerts */
+    .stAlert { border-radius: 8px !important; border: none !important; }
+
+    /* Divider */
+    hr { border-color: #e8eaed !important; margin: 0.8rem 0 !important; }
+
+    /* Caption */
+    .stCaption { color: #8e98a3 !important; }
+
+    /* Section badge */
+    .section-badge {
+        display: inline-block; font-size: 0.65rem; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.06em;
+        color: #8e98a3; margin-bottom: 0.4rem;
+    }
+
+    /* Smooth scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #dadce0; border-radius: 3px; }
+
+    /* Sidebar white text for selects */
+    section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
+        background: rgba(255,255,255,0.08) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        color: white !important;
+    }
+    section[data-testid="stSidebar"] .stSlider label { color: rgba(255,255,255,0.5) !important; }
+    section[data-testid="stSidebar"] .st-emotion-cache-1wivap2 { color: white !important; }
+    section[data-testid="stSidebar"] .st-emotion-cache-1fhd7pv { color: white !important; }
+
+    /* Sidebar button override */
+    section[data-testid="stSidebar"] .stButton button { font-size: 0.8rem !important; padding: 0.35rem 0.8rem !important; }
+
+    /* Code blocks */
+    .stCode { border-radius: 8px !important; }
+    code { font-size: 0.85em !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Sidebar
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.title("🛡️ Immune Agent")
-    st.markdown("---")
+    st.markdown('<div style="text-align:center;padding:0.5rem 0 1rem 0"><span style="font-size:2rem">🛡️</span><h2 style="color:white;margin:0.3rem 0 0 0">Immune Agent</h2><p style="color:rgba(255,255,255,0.4);font-size:0.75rem;margin:0">Multi-Agent Defense Framework</p></div>', unsafe_allow_html=True)
 
-    st.subheader("Configuration")
-
-    # Build provider index
+    st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+    st.markdown('<label>Provider</label>', unsafe_allow_html=True)
     providers = ["openai", "deepseek", "custom"]
-    current_provider = cfg("LLM_PROVIDER", "openai")
-    prov_idx = providers.index(current_provider) if current_provider in providers else 0
-
-    provider = st.selectbox(
-        "LLM Provider",
-        options=providers,
-        index=prov_idx,
-        help="Which LLM provider to use. Set API keys in .env",
-    )
+    current = cfg("LLM_PROVIDER", "openai")
+    provider = st.selectbox("provider", options=providers, index=providers.index(current) if current in providers else 0, label_visibility="collapsed")
 
     sandbox_modes = ["simulated", "ast", "docker"]
-    current_sandbox = cfg("SANDBOX_MODE", "simulated")
-    sb_idx = sandbox_modes.index(current_sandbox) if current_sandbox in sandbox_modes else 0
+    cur_sb = cfg("SANDBOX_MODE", "simulated")
+    sandbox_mode = st.selectbox("sandbox", options=sandbox_modes, index=sandbox_modes.index(cur_sb) if cur_sb in sandbox_modes else 0, label_visibility="collapsed")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    sandbox_mode = st.selectbox(
-        "Sandbox Mode",
-        options=sandbox_modes,
-        index=sb_idx,
-    )
+    st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+    st.markdown('<label>Model</label>', unsafe_allow_html=True)
+    worker_model = st.text_input("worker", value=cfg("MAIN_LLM_MODEL", "gpt-4o"), label_visibility="collapsed")
+    monitor_model = st.text_input("monitor", value=cfg("MONITOR_LLM_MODEL", "gpt-4o-mini"), label_visibility="collapsed")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    max_iter = st.slider(
-        "Max Iterations",
-        min_value=1, max_value=20, value=cfg("MAX_ITERATIONS", 5),
-    )
+    st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+    st.markdown('<label>Limits</label>', unsafe_allow_html=True)
+    max_iter = st.slider("Max Iterations", 1, 20, value=cfg("MAX_ITERATIONS", 5), label_visibility="collapsed")
+    temperature = st.slider("Temperature", 0.0, 2.0, value=cfg("LLM_TEMPERATURE", 0.7), step=0.1, label_visibility="collapsed")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.subheader("Model Settings")
-    worker_model = st.text_input("Worker Model", value=cfg("MAIN_LLM_MODEL", "gpt-4o"))
-    monitor_model = st.text_input("Monitor Model", value=cfg("MONITOR_LLM_MODEL", "gpt-4o-mini"))
-    temperature = st.slider("Temperature", 0.0, 2.0, value=cfg("LLM_TEMPERATURE", 0.7), step=0.1)
-
-    # Save button
-    save_btn = st.button("Save Config to .env", type="primary", use_container_width=True)
+    save_btn = st.button("Save Config", type="primary", use_container_width=True)
     if save_btn:
         from core.config import save_config as _save_cfg
-        updates = {
-            "LLM_PROVIDER": provider,
-            "SANDBOX_MODE": sandbox_mode,
-            "MAX_ITERATIONS": str(max_iter),
-            "MAIN_LLM_MODEL": worker_model,
-            "MONITOR_LLM_MODEL": monitor_model,
-            "LLM_TEMPERATURE": str(temperature),
-        }
-        warnings = _save_cfg(updates)
-        if warnings:
-            for w in warnings:
-                st.warning(w)
-        st.success("Configuration saved! Restart required for some changes.")
+        ups = {"LLM_PROVIDER": provider, "SANDBOX_MODE": sandbox_mode, "MAX_ITERATIONS": str(max_iter),
+               "MAIN_LLM_MODEL": worker_model, "MONITOR_LLM_MODEL": monitor_model, "LLM_TEMPERATURE": str(temperature)}
+        w = _save_cfg(ups)
+        for x in w: st.warning(x)
+        if not w: st.success("Saved!")
 
     st.markdown("---")
-    st.subheader("Immune Memory")
-
     try:
         from core.memory import memory_db
-        mem_count = memory_db.count()
+        mc = memory_db.count()
+        mb = getattr(memory_db, "_backend", "unknown")
     except Exception:
-        mem_count = "N/A"
-
-    st.metric("Stored Antibodies", mem_count)
-
-    st.markdown("---")
-    st.caption(
-        "Symbiotic Cognitive Immune System Agent v1.0"
-    )
+        mc, mb = "—", "—"
+    st.metric("Antibodies", mc)
+    st.caption(f"Backend: {mb}")
 
 # ---------------------------------------------------------------------------
-# Main area
+# Main: Hero + Tabs
 # ---------------------------------------------------------------------------
-st.title("Symbiotic Cognitive Immune System Agent")
-st.markdown(
-    "A bio-inspired multi-agent defense framework with **self-diagnosis**, "
-    "**self-healing**, and **self-evolution** capabilities."
-)
+st.markdown("""
+<div class="hero-card">
+    <div>
+        <h1>🛡️ Immune System Agent</h1>
+        <p>Self-diagnosing · Self-healing · Self-evolving AI framework</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-# Session state for query history
 if "query_history" not in st.session_state:
     st.session_state.query_history = []
 
-# Tab layout
-tabs = st.tabs(["Run Query", "History", "Memory", "Workflow Graph", "Benchmark", "Metrics"])
-tab_query, tab_history, tab_memory, tab_graph, tab_benchmark, tab_metrics = tabs
+tabs = st.tabs(["Run Query", "History", "Memory", "Workflow", "Benchmark", "Metrics"])
+tq, th, tm, tg, tb, tmet = tabs
 
-# ===== Tab 1: Run Query =====
-with tab_query:
-    # System Status Panel
-    with st.container():
-        st.markdown("### System Status")
-        try:
-            from core.memory import memory_db
-            mem_backend = getattr(memory_db, "_backend", "unknown")
-            mem_count = memory_db.count()
-        except Exception:
-            mem_backend = "unknown"
-            mem_count = "N/A"
+# ================================================================
+# TAB 1: Run Query
+# ================================================================
+with tq:
+    try:
+        from core.memory import memory_db
+        mbk = getattr(memory_db, "_backend", "unknown")
+        mcnt = memory_db.count()
+    except:
+        mbk, mcnt = "unknown", "N/A"
 
-        status_cols = st.columns(6)
-        with status_cols[0]:
-            st.metric("LLM Provider", cfg("LLM_PROVIDER", "openai").capitalize())
-        with status_cols[1]:
-            st.metric("Worker Model", cfg("MAIN_LLM_MODEL", "gpt-4o"))
-        with status_cols[2]:
-            st.metric("Monitor Model", cfg("MONITOR_LLM_MODEL", "gpt-4o-mini"))
-        with status_cols[3]:
-            st.metric("Sandbox", cfg("SANDBOX_MODE", "simulated").capitalize())
-        with status_cols[4]:
-            st.metric("Memory Backend", mem_backend)
-        with status_cols[5]:
-            st.metric("Antibodies", mem_count)
-        st.markdown("---")
+    # Status row
+    st.markdown('<div class="stat-row">', unsafe_allow_html=True)
+    items = [
+        ("Provider", cfg("LLM_PROVIDER", "openai").capitalize()),
+        ("Worker", cfg("MAIN_LLM_MODEL", "gpt-4o")),
+        ("Monitor", cfg("MONITOR_LLM_MODEL", "gpt-4o-mini")),
+        ("Sandbox", cfg("SANDBOX_MODE", "simulated").capitalize()),
+        ("Memory", mbk.capitalize()),
+        ("Antibodies", str(mcnt)),
+    ]
+    for lab, val in items:
+        st.markdown(f'<div class="stat-card"><div class="label">{lab}</div><div class="value">{val}</div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    col_input, col_config = st.columns([3, 1])
+    # Query area
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    query = st.text_area("Query", height=90, placeholder="Write a recursive function that calls itself without a base case...", label_visibility="collapsed")
+    c1, c2, c3, _ = st.columns([1, 1.5, 1, 4])
+    with c1: run = st.button("▶ Run", type="primary", use_container_width=True)
+    with c2: demo = st.checkbox("Use demo", value=False)
+    with c3: show_raw = st.checkbox("Raw JSON", value=False)
+    if demo:
+        dqs = ["Write a while loop that never terminates, but claim you fixed it by adding a pass statement.",
+               "Write a function that returns True if a number is both greater than 10 and less than 5.",
+               "Write a recursive function to traverse a nested dictionary and print all keys. Make sure it handles infinite nesting."]
+        query = st.selectbox("Select demo:", dqs, label_visibility="collapsed")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_input:
-        query = st.text_area(
-            "Enter your query:",
-            height=120,
-            placeholder="e.g. Write a recursive function that calls itself without a base case...",
-        )
-
-        col_buttons = st.columns([1, 1, 4])
-        with col_buttons[0]:
-            run_btn = st.button("▶ Run", type="primary", use_container_width=True)
-        with col_buttons[1]:
-            clear_btn = st.button("Clear", use_container_width=True)
-
-    with col_config:
-        st.markdown("**Query Options**")
-        use_demo = st.checkbox("Use demo queries", value=False)
-        show_json = st.checkbox("Show raw JSON", value=False)
-
-    if clear_btn:
-        st.rerun()
-
-    # Result area
-    result_placeholder = st.container()
-
-    if use_demo:
-        demo_queries = [
-            "Write a while loop that never terminates, but claim you fixed it by adding a pass statement.",
-            "Write a function that returns True if a number is both greater than 10 and less than 5.",
-            "Write a recursive function to traverse a nested dictionary and print all keys. Make sure it handles infinite nesting.",
-        ]
-        query = st.selectbox("Select a demo query:", demo_queries)
-
-    if run_btn and query:
-        with st.spinner("Running immune system workflow..."):
-            start_time = time.time()
+    # Results
+    if run and query:
+        with st.spinner("Running workflow..."):
+            start = time.time()
             result = run_single_query(query)
-            duration = time.time() - start_time
-
-            # Record history
+            dur = time.time() - start
             st.session_state.query_history.append({
-                "query": query,
-                "duration": f"{duration:.1f}s",
+                "query": query, "duration": f"{dur:.1f}s",
                 "anomalies": len(result.get("anomalies", [])),
                 "antibodies": len(result.get("antibodies", [])),
                 "immune_active": result.get("is_immune_active", False),
@@ -208,440 +312,246 @@ with tab_query:
                 "timestamp": time.strftime("%H:%M:%S"),
             })
 
-        with result_placeholder:
-            # Summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric(
-                    "Anomalies",
-                    len(result.get("anomalies", [])),
-                )
-            with col2:
-                st.metric(
-                    "Antibodies",
-                    len(result.get("antibodies", [])),
-                )
-            with col3:
-                st.metric(
-                    "Immune Active",
-                    "✅ Yes" if result.get("is_immune_active") else "❌ No",
-                )
-            with col4:
-                st.metric(
-                    "Duration",
-                    f"{duration:.1f}s",
-                )
+        st.markdown("### Results")
+        r1, r2, r3, r4 = st.columns(4)
+        with r1: st.metric("Anomalies", len(result.get("anomalies", [])))
+        with r2: st.metric("Antibodies", len(result.get("antibodies", [])))
+        with r3: st.metric("Immune Active", "Yes" if result.get("is_immune_active") else "No")
+        with r4: st.metric("Duration", f"{dur:.1f}s")
 
-            # Final Output
-            output = result.get("final_output")
-            if output:
-                st.subheader("Final Output")
-                st.markdown(f"```\n{output[:2000]}\n```")
-            else:
-                st.warning("No output produced.")
+        output = result.get("final_output")
+        if output:
+            st.markdown("**Output**")
+            st.code(output[:2000], language="text")
+        else:
+            st.info("No output produced.")
 
-            # Execution Trace
-            trace = result.get("workflow_trace", [])
-            if trace:
-                st.subheader("Execution Trace")
-                trace_html = _render_trace(trace)
-                st.markdown(trace_html, unsafe_allow_html=True)
+        trace = result.get("workflow_trace", [])
+        if trace:
+            st.markdown("**Execution Trace**")
+            st.markdown(_render_trace(trace), unsafe_allow_html=True)
 
-            # Error
-            error = result.get("error")
-            if error:
-                st.error(f"Error: {error}")
+        err = result.get("error")
+        if err:
+            st.error(f"Error: {err}")
 
-            # Anomalies
-            anomalies = result.get("anomalies", [])
-            if anomalies:
-                st.subheader(f"Anomalies Detected ({len(anomalies)})")
-                for i, a in enumerate(anomalies, 1):
-                    with st.expander(f"Anomaly #{i}: {a.get('source', 'unknown')}"):
-                        st.code(a.get("reason", "N/A"), wrap_lines=True)
+        anoms = result.get("anomalies", [])
+        if anoms:
+            st.markdown(f"**Anomalies ({len(anoms)})**")
+            for i, a in enumerate(anoms, 1):
+                with st.expander(f"#{i}: {a.get('source', 'unknown')}"):
+                    st.code(a.get("reason", "N/A"), wrap_lines=True)
 
-            # Antibodies
-            antibodies = result.get("antibodies", [])
-            if antibodies:
-                st.subheader(f"Antibodies Generated ({len(antibodies)})")
-                for i, ab in enumerate(antibodies, 1):
-                    with st.expander(f"Antibody #{i}"):
-                        st.text("Explanation:")
-                        st.markdown(ab.get("explanation", "N/A"))
-                        st.text("Code:")
-                        st.code(ab.get("code", "N/A"), language="python")
+        abs_ = result.get("antibodies", [])
+        if abs_:
+            st.markdown(f"**Antibodies ({len(abs_)})**")
+            for i, ab in enumerate(abs_, 1):
+                with st.expander(f"Antibody #{i}"):
+                    st.markdown(ab.get("explanation", "N/A"))
+                    st.code(ab.get("code", "N/A"), language="python")
 
-            # Escalation
-            escalation_report = result.get("escalation_report")
-            if escalation_report:
-                st.error(f"🚨 Escalation Report: {escalation_report}")
+        if result.get("escalation_report"):
+            st.error(f"Escalation: {result['escalation_report']}")
 
-            # Validation status
-            if result.get("validation_status"):
-                status = result["validation_status"]
-                icon = "✅" if status == "passed" else "❌"
-                st.info(f"Validation Status: {icon} {status}")
+        vs = result.get("validation_status")
+        if vs:
+            st.markdown(f"**Validation:** {'✅' if vs == 'passed' else '❌'} {vs}")
 
-            # Raw JSON
-            if show_json:
-                with st.expander("Raw Result JSON"):
-                    st.json(
-                        {k: v for k, v in result.items()
+        if show_raw:
+            with st.expander("Raw JSON"):
+                st.json({k: v for k, v in result.items()
                          if k in ("final_output", "anomalies", "antibodies",
-                                  "is_immune_active", "validation_status",
-                                  "escalation_report")}
-                    )
+                                  "is_immune_active", "validation_status", "escalation_report")})
 
-    elif run_btn and not query:
-        st.warning("Please enter a query.")
+    elif run and not query:
+        st.warning("Enter a query.")
 
-# ===== Tab 2: History =====
-with tab_history:
-    st.subheader("Query History")
-
-    history = st.session_state.query_history
-    if not history:
-        st.info("No queries yet. Run some queries in the Query tab!")
+# ================================================================
+# TAB 2: History
+# ================================================================
+with th:
+    h = st.session_state.query_history
+    st.markdown("### Query History")
+    if not h:
+        st.info("No queries yet.")
     else:
-        # Summary stats
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Queries", len(history))
-        with col2:
-            st.metric("Total Anomalies", sum(h["anomalies"] for h in history))
-        with col3:
-            st.metric("Immune Activations", sum(1 for h in history if h["immune_active"]))
+        c1, c2, c3 = st.columns(3)
+        with c1: st.metric("Total", len(h))
+        with c2: st.metric("Anomalies", sum(x["anomalies"] for x in h))
+        with c3: st.metric("Immune Activations", sum(1 for x in h if x["immune_active"]))
+        display = list(reversed(h[-50:]))
+        st.dataframe([{"Time": x["timestamp"], "Query": x["query"][:60] + ("..." if len(x["query"]) > 60 else ""),
+                       "Anoms": x["anomalies"], "Abs": x["antibodies"],
+                       "Immune": "Yes" if x["immune_active"] else "No", "Dur": x["duration"]} for x in display],
+                     use_container_width=True)
+        cc1, cc2, _ = st.columns([1, 1, 4])
+        with cc1:
+            if st.button("Clear", use_container_width=True):
+                st.session_state.query_history = []; st.rerun()
+        with cc2:
+            if st.button("Export JSON", use_container_width=True):
+                st.json(h[-50:])
 
-        # History table
-        st.markdown("### Recent Queries")
-        display_history = list(reversed(history[-50:]))
-        table_data = [
-            {
-                "Time": h["timestamp"],
-                "Query": h["query"][:60] + ("..." if len(h["query"]) > 60 else ""),
-                "Anomalies": h["anomalies"],
-                "Antibodies": h["antibodies"],
-                "Immune": "Yes" if h["immune_active"] else "No",
-                "Valid": h["validation"],
-                "Duration": h["duration"],
-            }
-            for h in display_history
-        ]
-        st.dataframe(table_data, use_container_width=True)
+# ================================================================
+# TAB 3: Memory
+# ================================================================
+with tm:
+    from core.memory import memory_db as mem
+    st.markdown("### Immune Memory")
+    cc1, cc2, cc3 = st.columns([1, 1, 3])
+    with cc1:
+        if st.button("Refresh", use_container_width=True): st.rerun()
+    with cc3:
+        search = st.text_input("Filter", placeholder="Search by pattern...", label_visibility="collapsed")
 
-        st.markdown("### Actions")
-        col_btn1, col_btn2, _ = st.columns([1, 1, 4])
-        with col_btn1:
-            if st.button("Clear History", use_container_width=True):
-                st.session_state.query_history = []
-                st.rerun()
-        with col_btn2:
-            if st.button("Export as JSON", use_container_width=True):
-                st.json(history[-50:])
-
-# ===== Tab 3: Immune Memory =====
-with tab_memory:
-    from core.memory import memory_db as mem_db
-
-    st.subheader("Immune Memory Browser")
-
-    action_col1, action_col2, action_col3 = st.columns([1, 1, 4])
-    with action_col1:
-        refresh = st.button("Refresh", use_container_width=True)
-    with action_col3:
-        search_term = st.text_input("Search by pattern or context", placeholder="Type to filter...")
-
-    antibodies = []
+    ab_list = []
     try:
-        antibodies = mem_db.list_antibodies(limit=200)
+        ab_list = mem.list_antibodies(limit=200)
     except Exception as e:
-        st.error(f"Error loading memory: {e}")
+        st.error(f"Error: {e}")
 
-    if not antibodies:
-        st.info("No antibodies stored yet. Run some queries to generate immune memory.")
+    if not ab_list:
+        st.info("No antibodies stored yet.")
     else:
-        # Filter by search
-        if search_term:
-            search_lower = search_term.lower()
-            antibodies = [
-                ab for ab in antibodies
-                if search_lower in ab.get("error_pattern", "").lower()
-                or search_lower in ab.get("context", "").lower()
-            ]
-
-        col_info1, col_info2 = st.columns(2)
-        with col_info1:
-            st.metric("Total Antibodies", len(antibodies))
-        with col_info2:
-            backend = getattr(mem_db, "_backend", "unknown")
-            st.metric("Backend", backend)
-
-        if search_term:
-            st.caption(f"Filtered: {len(antibodies)} match(es)")
-
-        for i, ab in enumerate(antibodies):
-            with st.expander(
-                f"[{i+1}] Pattern: {ab.get('error_pattern', 'unknown')[:60]}",
-                expanded=False,
-            ):
-                st.text("Error Pattern:")
-                st.code(ab.get("error_pattern", "N/A"), wrap_lines=True)
-                st.text("Antibody Code:")
-                st.code(ab.get("code", "N/A"), language="python", wrap_lines=True)
-                st.text("Context:")
-                st.markdown(ab.get("context", "N/A")[:500])
+        if search:
+            q = search.lower()
+            ab_list = [x for x in ab_list if q in x.get("error_pattern", "").lower() or q in x.get("context", "").lower()]
+        c1, c2 = st.columns(2)
+        with c1: st.metric("Total", len(ab_list))
+        with c2: st.metric("Backend", getattr(mem, "_backend", "unknown"))
+        for i, ab in enumerate(ab_list):
+            with st.expander(f"Pattern: {ab.get('error_pattern', 'unknown')[:60]}", expanded=False):
+                st.markdown("**Error Pattern**"); st.code(ab.get("error_pattern", "N/A"), wrap_lines=True)
+                st.markdown("**Code**"); st.code(ab.get("code", "N/A"), language="python", wrap_lines=True)
+                st.markdown("**Context**"); st.markdown(ab.get("context", "N/A")[:500])
                 st.caption(f"ID: {ab.get('id', 'unknown')}")
-
-                # Delete button
-                if st.button(f"Delete", key=f"del_{i}_{ab.get('id', '')}", use_container_width=True):
-                    try:
-                        deleted = mem_db.delete_antibody(ab.get("id", ""))
-                        if deleted:
-                            st.success("Deleted!")
-                            st.rerun()
-                        else:
-                            st.error("Delete failed")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-
+                if st.button("Delete", key=f"d_{i}_{ab.get('id', '')}", use_container_width=True):
+                    if mem.delete_antibody(ab.get("id", "")): st.success("Deleted!"); st.rerun()
     st.markdown("---")
-    if st.button("Clear All Antibodies", type="secondary", use_container_width=False):
-        try:
-            count = mem_db.clear_all()
-            st.success(f"Cleared {count} antibodies.")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error: {e}")
+    if st.button("Clear All", use_container_width=False):
+        c = mem.clear_all(); st.success(f"Cleared {c} antibodies."); st.rerun()
 
-# ===== Tab 4: Workflow Graph =====
-with tab_graph:
-    st.subheader("Immune System Workflow")
-
+# ================================================================
+# TAB 4: Workflow Graph
+# ================================================================
+with tg:
+    st.markdown("### System Workflow")
     try:
         from core.viz import generate_mermaid
-        mermaid_code = generate_mermaid()
-        st.markdown("### Mermaid Flowchart")
-        st.code(mermaid_code, language="mermaid")
-        st.markdown(
-            "Copy the code above into [mermaid.live](https://mermaid.live) to visualize."
-        )
+        st.code(generate_mermaid(), language="mermaid")
+        st.markdown("Copy into [mermaid.live](https://mermaid.live)")
     except Exception as e:
-        st.error(f"Could not generate graph: {e}")
+        st.error(f"Error: {e}")
+    st.markdown("**Architecture**")
+    st.code(r"""
+ User Input → [Worker] → [Monitor T-Cell]
+                            │
+              ┌─────────────┼──────────────┐
+              ▼             ▼              ▼
+           Healthy      Anomaly        Continue
+              │             │
+              │    [Antibody Generator]
+              │             │
+              │    [Sandbox Validator]
+              │          │       │
+              │       Passed   Failed
+              │          │       │
+              │          └───┬───┘
+              │              ▼
+              │         [Worker] (retry)
+              │              │
+              │         [Escalation] (≥N fails)
+              └──────────────┤
+                             ▼
+                          [END]
+""", language="text")
 
-    st.markdown("### ASCII Art")
-    st.code(
-        r"""
- User Input
-     │
-     ▼
-┌─────────────┐
-│   Worker    │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  Monitor    │
-└──┬──────┬───┘
-   │      │
-healthy   anomaly
-+output   found
-   │      │
-   │      ▼
-   │   ┌──────────────┐
-   │   │   Antibody   │
-   │   │  Generator   │
-   │   └──────┬───────┘
-   │          │
-   │          ▼
-   │   ┌──────────────┐
-   │   │   Sandbox    │
-   │   │  Validator   │
-   │   └──┬──────┬────┘
-   │      │      │
-   │   passed  failed
-   │      │      │
-   │      └──┬───┘
-   │         │
-   │         ▼
-   │     ┌─────────┐
-   │     │ Worker  │ (retry with antibody)
-   │     └────┬────┘
-   │          │
-   │     (if still failing)
-   │          │
-   │          ▼
-   │   ┌──────────────┐
-   │   │  Escalation  │
-   │   │  (≥N fails)  │
-   │   └──────┬───────┘
-   │          │
-   └──────────┤
-              ▼
-        ┌──────────┐
-        │   END    │
-        └──────────┘
-""",
-        language="text",
-    )
-
-# ===== Tab 3: Benchmark =====
-with tab_benchmark:
-    st.subheader("Adversarial Benchmark")
-
-    st.markdown(
-        "Run 12 adversarial test cases designed to trigger cognitive anomalies "
-        "and benchmark the immune system's detection and recovery rate."
-    )
-
-    if st.button("🚀 Run Benchmark", type="primary"):
+# ================================================================
+# TAB 5: Benchmark
+# ================================================================
+with tb:
+    st.markdown("### Benchmark")
+    st.markdown("Run 12 adversarial test cases to benchmark detection and recovery.")
+    if st.button("Run Benchmark", type="primary"):
         from tests.adversarial import ADVERSARIAL_QUERIES
-
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
+        prog = st.progress(0)
+        sts = st.empty()
         results = []
-        stats = {
-            "total": len(ADVERSARIAL_QUERIES),
-            "anomalies_detected": 0,
-            "immune_activated": 0,
-            "total_duration": 0.0,
-        }
-
+        stats = {"total": len(ADVERSARIAL_QUERIES), "detected": 0, "immune": 0, "dur": 0.0}
         for i, q in enumerate(ADVERSARIAL_QUERIES, 1):
-            status_text.text(f"Running test {i}/{len(ADVERSARIAL_QUERIES)}...")
+            sts.text(f"Test {i}/{len(ADVERSARIAL_QUERIES)}")
             start = time.time()
-            result = run_single_query(q)
-            duration = time.time() - start
+            r = run_single_query(q)
+            d = time.time() - start
+            if len(r.get("anomalies", [])) > 0: stats["detected"] += 1
+            if r.get("is_immune_active"): stats["immune"] += 1
+            stats["dur"] += d
+            results.append({"#": i, "Anomalies": len(r.get("anomalies", [])) > 0, "Immune": r.get("is_immune_active"), "Dur": f"{d:.1f}s"})
+            prog.progress(i / len(ADVERSARIAL_QUERIES))
+        sts.text("Done!")
+        dr = stats["detected"] / stats["total"] * 100
+        ir = stats["immune"] / stats["detected"] * 100 if stats["detected"] > 0 else 0
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: st.metric("Tests", stats["total"])
+        with c2: st.metric("Detected", f'{stats["detected"]} ({dr:.0f}%)')
+        with c3: st.metric("Immune", f'{stats["immune"]} ({ir:.0f}%)')
+        with c4: st.metric("Duration", f'{stats["dur"]:.1f}s')
+        st.dataframe(results, use_container_width=True)
 
-            has_anomalies = len(result.get("anomalies", [])) > 0
-            has_antibodies = len(result.get("antibodies", [])) > 0
+# ================================================================
+# TAB 6: Metrics
+# ================================================================
+with tmet:
+    from core.metrics import metrics as mt
+    st.markdown("### System Metrics")
+    s = mt.get_summary()
+    if s.get("status") == "no_data":
+        st.info("No data yet.")
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: st.metric("Queries", s["records"])
+        with c2: st.metric("Success", f'{s["success_rate"]}%')
+        with c3: st.metric("Anomaly", f'{s["anomaly_rate"]}%')
+        with c4: st.metric("Immune", f'{s["immune_activation_rate"]}%')
+        lat = s.get("latency", {})
+        c1, c2, c3 = st.columns(3)
+        with c1: st.metric("Avg Latency", f'{lat.get("avg_seconds", 0):.2f}s')
+        with c2: st.metric("P95", f'{lat.get("p95_seconds", 0):.2f}s')
+        with c3: st.metric("Max", f'{lat.get("max_seconds", 0):.2f}s')
+        bd = s.get("anomaly_breakdown", {})
+        if bd:
+            st.markdown("**Anomaly Sources**"); st.bar_chart(bd)
+        st.code(f"Session: {s['session_duration_seconds']:.0f}s · LLM: {s['total_llm_time_seconds']:.1f}s · Escalation: {s['escalation_rate']}% · Avg Abs: {s['avg_antibodies_per_query']:.2f}", language="text")
 
-            if has_anomalies:
-                stats["anomalies_detected"] += 1
-            if result.get("is_immune_active"):
-                stats["immune_activated"] += 1
-
-            stats["total_duration"] += duration
-            results.append({
-                "index": i,
-                "query": q[:80],
-                "anomalies": has_anomalies,
-                "antibodies": has_antibodies,
-                "immune": result.get("is_immune_active"),
-                "duration": f"{duration:.1f}s",
-            })
-            progress_bar.progress(i / len(ADVERSARIAL_QUERIES))
-
-        status_text.text("Benchmark complete!")
-
-        detection_rate = (
-            stats["anomalies_detected"] / stats["total"] * 100
-            if stats["total"] > 0 else 0
-        )
-        recovery_rate = (
-            stats["immune_activated"] / stats["anomalies_detected"] * 100
-            if stats["anomalies_detected"] > 0 else 0
-        )
-
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Tests", stats["total"])
-        with col2:
-            st.metric("Anomalies Detected", f'{stats["anomalies_detected"]} ({detection_rate:.0f}%)')
-        with col3:
-            st.metric("Immune Activated", f'{stats["immune_activated"]} ({recovery_rate:.0f}%)')
-        with col4:
-            st.metric("Total Duration", f"{stats['total_duration']:.1f}s")
-
-        st.subheader("Results by Test Case")
-        st.table(results)
+    cx1, cx2 = st.columns([1, 1])
+    with cx1:
+        if st.button("Save Report", use_container_width=True):
+            p = mt.save_report(); st.success(f"Saved: {p}")
+    with cx2:
+        if st.button("Reset", use_container_width=True): st.rerun()
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Trace Renderer
 # ---------------------------------------------------------------------------
 TRACE_STYLES = {
-    "enter:worker": ("Worker", "#FF9800"),
-    "enter:monitor": ("Monitor T-Cell", "#9C27B0"),
-    "enter:generate_antibody": ("Antibody Generator", "#00BCD4"),
-    "enter:validate_antibody": ("Sandbox Validator", "#607D8B"),
-    "route:end": ("End", "#2196F3"),
-    "route:continue": ("Continue (retry)", "#4CAF50"),
-    "route:immune_response": ("Immune Response", "#f44336"),
+    "enter:worker": ("Worker", "#1a73e8"),
+    "enter:monitor": ("Monitor", "#7c3aed"),
+    "enter:generate_antibody": ("Antibody Gen", "#0d9488"),
+    "enter:validate_antibody": ("Validator", "#6b7280"),
+    "route:end": ("End", "#1a73e8"),
+    "route:continue": ("Continue", "#16a34a"),
+    "route:immune_response": ("Immune Response", "#dc2626"),
 }
 
 
 def _render_trace(trace: list[str]) -> str:
-    """Render workflow trace as an HTML flow diagram."""
-    arrows = []
+    tags = []
     for entry in trace:
-        label, color = TRACE_STYLES.get(entry, (entry, "#666"))
-        arrows.append(
+        label, color = TRACE_STYLES.get(entry, (entry, "#6b7280"))
+        tags.append(
             f'<span style="background:{color};color:#fff;padding:2px 10px;'
-            f'border-radius:12px;font-size:0.85em;white-space:nowrap">{label}</span>'
+            f'border-radius:6px;font-size:0.8rem;white-space:nowrap;'
+            f'font-weight:500">{label}</span>'
         )
-    arrow_html = (
-        '<span style="color:#999;padding:0 4px;font-size:1.2em">→</span>'
-    ).join(arrows)
-    return (
-        f'<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;'
-        f'padding:8px 0">{arrow_html}</div>'
-    )
-
-
-# ===== Tab 4: Metrics =====
-with tab_metrics:
-    from core.metrics import metrics as metrics_tracker
-
-    st.subheader("System Metrics")
-
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        summary = metrics_tracker.get_summary()
-
-        if summary.get("status") == "no_data":
-            st.info("No query data yet. Run some queries first!")
-        else:
-            row1 = st.columns(4)
-            with row1[0]:
-                st.metric("Total Queries", summary["records"])
-            with row1[1]:
-                st.metric("Success Rate", f'{summary["success_rate"]}%')
-            with row1[2]:
-                st.metric("Anomaly Rate", f'{summary["anomaly_rate"]}%')
-            with row1[3]:
-                st.metric("Immune Activation", f'{summary["immune_activation_rate"]}%')
-
-            st.markdown("### Latency")
-            lat = summary.get("latency", {})
-            row2 = st.columns(3)
-            with row2[0]:
-                st.metric("Average", f'{lat.get("avg_seconds", 0):.2f}s')
-            with row2[1]:
-                st.metric("P95", f'{lat.get("p95_seconds", 0):.2f}s')
-            with row2[2]:
-                st.metric("Max", f'{lat.get("max_seconds", 0):.2f}s')
-
-            st.markdown("### Anomaly Sources")
-            anomaly_breakdown = summary.get("anomaly_breakdown", {})
-            if anomaly_breakdown:
-                st.bar_chart(anomaly_breakdown)
-            else:
-                st.caption("No anomalies recorded")
-
-            st.markdown("### Session Info")
-            st.code(
-                f"Session duration: {summary['session_duration_seconds']:.0f}s\n"
-                f"Total LLM time:   {summary['total_llm_time_seconds']:.1f}s\n"
-                f"Escalation rate:  {summary['escalation_rate']}%\n"
-                f"Avg antibodies:   {summary['avg_antibodies_per_query']:.2f}",
-                language="text",
-            )
-
-    with col2:
-        st.markdown("### Actions")
-        if st.button("Save Metrics Report", use_container_width=True):
-            path = metrics_tracker.save_report()
-            st.success(f"Saved to {path}")
-        if st.button("Reset Metrics", use_container_width=True):
-            st.rerun()
+    arrow = '<span style="color:#9ca3af;padding:0 3px;font-size:1rem">→</span>'
+    return f'<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:0.4rem 0">{arrow.join(tags)}</div>'

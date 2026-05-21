@@ -58,6 +58,8 @@ def validate_all() -> list[str]:
         if raw is None:
             if required:
                 warnings.append(f"MISSING: {key} ({desc}) - not set; see .env.example")
+            elif default is not None:
+                _values[key] = default
             continue
 
         try:

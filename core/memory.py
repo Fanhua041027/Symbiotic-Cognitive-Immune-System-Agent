@@ -82,10 +82,11 @@ class ImmunologyMemory:
         self, error_pattern: str, antibody_code: str, context: str
     ) -> None:
         """存储有效的抗体到向量数据库。"""
+        antibody_id = str(uuid.uuid4())
         if self._backend == "chromadb":
             self.collection.add(
                 documents=[context],
-                ids=[str(uuid.uuid4())],
+                ids=[antibody_id],
                 metadatas=[{"error_pattern": error_pattern, "code": antibody_code}],
             )
         else:
@@ -93,6 +94,71 @@ class ImmunologyMemory:
         logger.info(
             "Stored new antibody for pattern: %s...", error_pattern[:50]
         )
+
+    def list_antibodies(self, limit: int = 50) -> list[dict]:
+        """List stored antibodies with metadata."""
+        if self._backend == "chromadb":
+            try:
+                data = self.collection.get(limit=limit)
+                results = []
+                for i, doc_id in enumerate(data.get("ids", [])):
+                    meta = (data.get("metadatas") or [{}])[i] if i < len(data.get("metadatas") or []) else {}
+                    doc = (data.get("documents") or [None])[i] if i < len(data.get("documents") or []) else None
+                    results.append({
+                        "id": doc_id,
+                        "error_pattern": meta.get("error_pattern", "unknown"),
+                        "code": meta.get("code", "")[:200],
+                        "context": (doc or "")[:200],
+                    })
+                return results
+            except Exception as e:
+                logger.warning("Failed to list chromadb antibodies: %s", e)
+                return []
+        # In-memory fallback
+        return [
+            {
+                "id": str(i),
+                "error_pattern": ab.get("error_pattern", "unknown"),
+                "code": ab.get("code", "")[:200],
+                "context": ab.get("context", "")[:200],
+            }
+            for i, ab in enumerate(self._in_memory._antibodies)
+        ][:limit]
+
+    def delete_antibody(self, antibody_id: str) -> bool:
+        """Delete an antibody by ID. Returns True on success."""
+        if self._backend == "chromadb":
+            try:
+                self.collection.delete(ids=[antibody_id])
+                logger.info("Deleted antibody: %s", antibody_id)
+                return True
+            except Exception as e:
+                logger.warning("Failed to delete antibody %s: %s", antibody_id, e)
+                return False
+        # In-memory: delete by index
+        try:
+            idx = int(antibody_id)
+            if 0 <= idx < len(self._in_memory._antibodies):
+                del self._in_memory._antibodies[idx]
+                return True
+        except (ValueError, IndexError):
+            pass
+        return False
+
+    def clear_all(self) -> int:
+        """Delete all antibodies. Returns count of deleted items."""
+        count = self.count()
+        if self._backend == "chromadb":
+            try:
+                data = self.collection.get()
+                if data and data.get("ids"):
+                    self.collection.delete(ids=data["ids"])
+            except Exception as e:
+                logger.warning("Failed to clear chromadb: %s", e)
+        else:
+            self._in_memory._antibodies.clear()
+        logger.info("Cleared %d antibodies", count)
+        return count
 
     def search_antibody(self, query: str) -> Optional[Dict[str, str]]:
         """检索相似的历史错误及对应抗体。"""

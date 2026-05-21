@@ -123,10 +123,45 @@ async def stats():
     }
 
 
-@app.get("/memory", tags=["System"])
-async def memory():
-    """Return immune memory contents."""
-    return {"antibodies": _memory_stats()}
+@app.get("/memory", tags=["Memory"])
+async def list_memory(limit: int = 50):
+    """List stored antibodies with optional limit."""
+    from core.memory import memory_db
+    try:
+        antibodies = memory_db.list_antibodies(limit=limit)
+        return {
+            "count": len(antibodies),
+            "backend": getattr(memory_db, "_backend", "unknown"),
+            "antibodies": antibodies,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/memory/{antibody_id}", tags=["Memory"])
+async def delete_antibody(antibody_id: str):
+    """Delete a specific antibody by ID."""
+    from core.memory import memory_db
+    try:
+        deleted = memory_db.delete_antibody(antibody_id)
+        if deleted:
+            return {"status": "deleted", "id": antibody_id}
+        raise HTTPException(status_code=404, detail=f"Antibody {antibody_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/memory", tags=["Memory"])
+async def clear_memory():
+    """Clear all antibodies."""
+    from core.memory import memory_db
+    try:
+        count = memory_db.clear_all()
+        return {"status": "cleared", "count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------------------------------------------------------------------------

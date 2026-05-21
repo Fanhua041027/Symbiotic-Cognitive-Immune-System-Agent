@@ -92,8 +92,8 @@ if "query_history" not in st.session_state:
     st.session_state.query_history = []
 
 # Tab layout
-tabs = st.tabs(["Run Query", "History", "Workflow Graph", "Benchmark", "Metrics"])
-tab_query, tab_history, tab_graph, tab_benchmark, tab_metrics = tabs
+tabs = st.tabs(["Run Query", "History", "Memory", "Workflow Graph", "Benchmark", "Metrics"])
+tab_query, tab_history, tab_memory, tab_graph, tab_benchmark, tab_metrics = tabs
 
 # ===== Tab 1: Run Query =====
 with tab_query:
@@ -279,7 +279,81 @@ with tab_history:
             if st.button("Export as JSON", use_container_width=True):
                 st.json(history[-50:])
 
-# ===== Tab 3: Workflow Graph =====
+# ===== Tab 3: Immune Memory =====
+with tab_memory:
+    from core.memory import memory_db as mem_db
+
+    st.subheader("Immune Memory Browser")
+
+    action_col1, action_col2, action_col3 = st.columns([1, 1, 4])
+    with action_col1:
+        refresh = st.button("Refresh", use_container_width=True)
+    with action_col3:
+        search_term = st.text_input("Search by pattern or context", placeholder="Type to filter...")
+
+    antibodies = []
+    try:
+        antibodies = mem_db.list_antibodies(limit=200)
+    except Exception as e:
+        st.error(f"Error loading memory: {e}")
+
+    if not antibodies:
+        st.info("No antibodies stored yet. Run some queries to generate immune memory.")
+    else:
+        # Filter by search
+        if search_term:
+            search_lower = search_term.lower()
+            antibodies = [
+                ab for ab in antibodies
+                if search_lower in ab.get("error_pattern", "").lower()
+                or search_lower in ab.get("context", "").lower()
+            ]
+
+        col_info1, col_info2 = st.columns(2)
+        with col_info1:
+            st.metric("Total Antibodies", len(antibodies))
+        with col_info2:
+            backend = getattr(mem_db, "_backend", "unknown")
+            st.metric("Backend", backend)
+
+        if search_term:
+            st.caption(f"Filtered: {len(antibodies)} match(es)")
+
+        for i, ab in enumerate(antibodies):
+            with st.expander(
+                f"[{i+1}] Pattern: {ab.get('error_pattern', 'unknown')[:60]}",
+                expanded=False,
+            ):
+                st.text("Error Pattern:")
+                st.code(ab.get("error_pattern", "N/A"), wrap_lines=True)
+                st.text("Antibody Code:")
+                st.code(ab.get("code", "N/A"), language="python", wrap_lines=True)
+                st.text("Context:")
+                st.markdown(ab.get("context", "N/A")[:500])
+                st.caption(f"ID: {ab.get('id', 'unknown')}")
+
+                # Delete button
+                if st.button(f"Delete", key=f"del_{i}_{ab.get('id', '')}", use_container_width=True):
+                    try:
+                        deleted = mem_db.delete_antibody(ab.get("id", ""))
+                        if deleted:
+                            st.success("Deleted!")
+                            st.rerun()
+                        else:
+                            st.error("Delete failed")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+    st.markdown("---")
+    if st.button("Clear All Antibodies", type="secondary", use_container_width=False):
+        try:
+            count = mem_db.clear_all()
+            st.success(f"Cleared {count} antibodies.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+# ===== Tab 4: Workflow Graph =====
 with tab_graph:
     st.subheader("Immune System Workflow")
 

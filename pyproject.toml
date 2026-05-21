@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "symbiotic-immune-agent"
+version = "1.0.0"
+description = "Bio-inspired multi-agent defense framework with self-diagnosis, self-healing, and self-evolution capabilities"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=0.4.0",
+    "langchain-openai>=0.3.0",
+    "chromadb>=0.6.0",
+    "python-dotenv>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pre-commit>=3.0", "ruff>=0.4"]
+
+[project.urls]
+Repository = "https://github.com/Fanhua041027/Symbiotic-Cognitive-Immune-System-Agent"
+
+[tool.setuptools.packages.find]
+include = ["core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 90
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true

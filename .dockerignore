@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Environment
+.env
+.envrc
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project data (generated at runtime)
+.immune_db/
+logs/
+escalations/
+benchmarks/
+
+# CI / quality
+.github/
+.pre-commit-config.yaml
+
+# Docs
+README.md

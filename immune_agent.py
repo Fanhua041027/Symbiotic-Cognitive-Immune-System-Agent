@@ -139,9 +139,27 @@ def run_interactive() -> None:
         print(f"\nAgent: {output}\n")
 
 
+def run_benchmark() -> None:
+    """Run the adversarial benchmark suite."""
+    from tests.adversarial import run_benchmark as _bench
+
+    logger.info("Starting adversarial benchmark...")
+    _bench()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Symbiotic Cognitive Immune System Agent"
+        description="Symbiotic Cognitive Immune System Agent",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  %(prog)s                        Run demo test cases\n"
+            "  %(prog)s -q \"write a function\"  Single query\n"
+            "  %(prog)s -i                      Interactive mode\n"
+            "  %(prog)s -b                      Run adversarial benchmark\n"
+            "  %(prog)s -g                      Show workflow graph\n"
+            "  %(prog)s -q \"hello\" -j          Output as JSON\n"
+        ),
     )
     parser.add_argument(
         "--query", "-q",
@@ -153,19 +171,54 @@ def main() -> None:
         action="store_true",
         help="Interactive mode",
     )
+    parser.add_argument(
+        "--benchmark", "-b",
+        action="store_true",
+        help="Run adversarial benchmark suite",
+    )
+    parser.add_argument(
+        "--graph", "-g",
+        action="store_true",
+        help="Print workflow graph visualization",
+    )
+    parser.add_argument(
+        "--json", "-j",
+        action="store_true",
+        help="Output result as JSON (use with --query)",
+    )
 
     args = parser.parse_args()
 
+    if args.graph:
+        from core.viz import print_graph, print_graph_ascii
+        print_graph()
+        print_graph_ascii()
+        return
+
+    if args.benchmark:
+        run_benchmark()
+        return
+
     if args.query:
         result = run_single_query(args.query)
-        output = result.get("final_output") or json.dumps(
-            result.get("error", "No output"), ensure_ascii=False
-        )
-        logger.info(output)
-    elif args.interactive:
+        if args.json:
+            print(json.dumps(
+                {k: v for k, v in result.items()
+                 if k in ("final_output", "anomalies", "antibodies",
+                          "is_immune_active", "validation_status",
+                          "escalation_report")},
+                ensure_ascii=False, indent=2, default=str,
+            ))
+        else:
+            output = result.get("final_output") or result.get("error", "No output")
+            logger.info(output)
+        return
+
+    if args.interactive:
         run_interactive()
-    else:
-        run_demo()
+        return
+
+    run_demo()
 
 
 if __name__ == "__main__":

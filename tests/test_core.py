@@ -598,3 +598,51 @@ class TestConfigSave:
         from core.logger import setup_logger
         logger = setup_logger("test_handlers")
         assert len(logger.handlers) >= 2  # console + file
+
+
+# ---------------------------------------------------------------------------
+# Workflow integration
+# ---------------------------------------------------------------------------
+class TestWorkflowIntegration:
+    """Integration tests for the compiled LangGraph workflow."""
+
+    def test_workflow_compiles(self):
+        """build_workflow() compiles without errors."""
+        from core.workflow import build_workflow
+        app = build_workflow()
+        assert app is not None
+
+    def test_workflow_has_required_nodes(self):
+        """Compiled graph contains all four agent nodes."""
+        from core.workflow import build_workflow
+        app = build_workflow()
+        nodes = list(app.get_graph().nodes.keys())
+        for node in ("worker", "monitor", "generate_antibody", "validate_antibody"):
+            assert node in nodes, f"Missing node: {node}"
+
+    def test_workflow_has_correct_edge_structure(self):
+        """Graph edges match expected immune system flow."""
+        from core.workflow import build_workflow
+        app = build_workflow()
+        edges = list(app.get_graph().edges)
+
+        edge_pairs = {(e[0], e[1]) for e in edges}
+        required = [
+            ("__start__", "worker"),
+            ("worker", "monitor"),
+            ("generate_antibody", "validate_antibody"),
+            ("validate_antibody", "worker"),
+        ]
+        for src, dst in required:
+            assert (src, dst) in edge_pairs, f"Missing edge: {src} → {dst}"
+
+    def test_workflow_monitor_has_conditional_edges(self):
+        """Monitor node has three conditional routes."""
+        from core.workflow import build_workflow
+        app = build_workflow()
+        edges = list(app.get_graph().edges)
+        edge_pairs = {(e[0], e[1]) for e in edges}
+        for target in ("__end__", "generate_antibody", "worker"):
+            assert ("monitor", target) in edge_pairs, (
+                f"Missing conditional edge: monitor → {target}"
+            )

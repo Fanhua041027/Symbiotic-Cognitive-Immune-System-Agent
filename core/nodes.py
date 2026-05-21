@@ -183,18 +183,29 @@ Before writing any code, think through the problem. Consider edge cases,
 input validation, termination conditions, and resource constraints.
 
 **Step 2 — Self-Check (mandatory):**
-Analyze your own reasoning for these defect patterns:
-1. **Infinite loop risk** — Does any loop/recursion have a guaranteed termination condition?
-2. **Logical contradiction** — Does any condition conflict with another (e.g., x > 10 AND x < 5)?
+Analyze your own reasoning for these defect patterns with specific examples:
+
+1. **Infinite loop risk** — Does every loop/recursion have a guaranteed termination condition?
+   Examples: `while True` without break, recursion without base case, `for i in range(n)` where n unbounded
+2. **Logical contradiction** — Does any condition conflict with another?
+   Examples: `x > 10 AND x < 5`, unreachable `elif` branches, contradictory preconditions
 3. **Missing base case** — Does recursion have an exit branch?
+   Examples: factorial without n==0 check, tree traversal without None check
 4. **Resource safety** — Are file handles, network connections, or memory bounded?
-5. **Type/correctness** — Are types consistent? Does the logic actually solve the problem?
+   Examples: open() without close(), unbounded list growth in loop, no try/finally
+5. **Type/correctness** — Are types consistent? Does the logic solve the problem?
+   Examples: adding str + int, SQL injection via string concat, off-by-one in binary search
+6. **Security / injection** — Does code use dangerous patterns?
+   Examples: exec/eval on untrusted input, shell injection via os.system, raw SQL concat
+7. **Unicode / encoding** — Are string operations encoding-aware?
+   Examples: len() on multibyte chars, slicing UTF-8 strings by byte index
 
 **Step 3 — Output:**
 - If you detect ANY issue, start with: COGNITIVE_ANOMALY: <pattern_name> — <specific description>
   Then show the problematic reasoning.
 - If everything is clean, provide your final solution directly.
 - For code solutions: always include at minimum a max-iteration guard or recursion depth limit.
+- If historical antibodies are injected above, ensure they are correctly applied.
 """
 
     # 自增迭代计数
@@ -265,20 +276,39 @@ Analyze the worker agent's execution steps: {json.dumps(steps, ensure_ascii=Fals
 Original user query: {query}
 
 **Inspection Checklist (check ALL categories):**
-1. **Loop/Recursion safety** — Is there a guaranteed termination condition? Any risk of infinite loop?
-2. **Logical consistency** — Are there contradictory conditions or unreachable branches?
-3. **Completeness** — Does the output fully answer the query? Are edge cases handled?
-4. **Safety** — Does the code use dangerous operations (exec, eval, unsafe subprocess)?
-5. **Progression** — Compare with any previous steps. Is the agent making progress or repeating?
 
-Return ONLY a JSON object with exactly one of these formats:
+1. **Loop/Recursion safety** — Is there a guaranteed termination condition?
+   Flag: `while True` without break, recursion without base case, unbounded iteration
+2. **Logical consistency** — Are there contradictory conditions?
+   Flag: unreachable branches, impossible AND/OR conditions, self-contradictory claims
+3. **Completeness** — Does the output fully answer the query?
+   Flag: missing edge cases, vague hand-waving instead of solution, hallucinated APIs
+4. **Safety** — Does the code use dangerous operations?
+   Flag: exec/eval, SQL injection via string concat, subprocess without sanitization
+5. **Progression** — Compare with any previous steps.
+   Flag: repeating same error, ignoring injected antibodies, not applying historical fixes
+6. **Type/encoding safety** — Are types consistent?
+   Flag: unicode byte vs char confusion, str+int addition, silent type coercion
+
+**False positive prevention** — Do NOT flag:
+- Valid code with proper termination guards
+- Code that correctly handles edge cases
+- Intentional infinite loops with break conditions
+
+**Severity guide:**
+- high: causes crash, hang, or security vulnerability
+- medium: logical error that produces wrong results
+- low: style issue, incomplete but not harmful
+
+Return ONLY a valid JSON object with exactly one of these formats:
 - Healthy: {{"status": "healthy", "confidence": "high"}}
 - Unhealthy: {{"status": "unhealthy", "reason": "<concise specific reason>", "severity": "high|medium|low"}}
 
 Examples:
 - Healthy: {{"status": "healthy", "confidence": "high"}}
-- Infinite loop risk: {{"status": "unhealthy", "reason": "while True with no break condition", "severity": "high"}}
-- Contradiction: {{"status": "unhealthy", "reason": "if x > 10 and x < 5 is impossible", "severity": "medium"}}
+- Infinite loop risk: {{"status": "unhealthy", "reason": "while True with no break condition and no termination guard", "severity": "high"}}
+- Contradiction: {{"status": "unhealthy", "reason": "if x > 10 and x < 5 is logically impossible — unreachable branch", "severity": "medium"}}
+- SQL injection: {{"status": "unhealthy", "reason": "user input concatenated directly into SQL query string", "severity": "high"}}
 """
 
     try:

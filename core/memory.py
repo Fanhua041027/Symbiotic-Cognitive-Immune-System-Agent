@@ -58,12 +58,6 @@ class InMemoryStore:
                 return True
         return False
 
-    @staticmethod
-    def _token_score(text: str, query_tokens: set[str]) -> float:
-        text_lower = text.lower()
-        matches = sum(1 for t in query_tokens if t in text_lower)
-        return matches / len(query_tokens) if query_tokens else 0.0
-
     def search_antibody(self, query: str) -> Optional[Dict[str, str]]:
         if not self._antibodies:
             return None
@@ -75,11 +69,16 @@ class InMemoryStore:
 
         scored = []
         for ab in self._antibodies:
+            texts = [
+                ab.get("error_pattern", "").lower(),
+                ab.get("context", "").lower(),
+                ab.get("code", "").lower(),
+            ]
+            # Max token overlap ratio across all fields
             score = max(
-                self._token_score(ab.get("error_pattern", ""), query_tokens),
-                self._token_score(ab.get("context", ""), query_tokens),
-                self._token_score(ab.get("code", ""), query_tokens),
-            )
+                sum(1 for t in query_tokens if t in text) / len(query_tokens)
+                for text in texts
+            ) if any(texts) else 0.0
             if score > 0:
                 scored.append((score, ab))
 

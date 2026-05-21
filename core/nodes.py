@@ -82,10 +82,13 @@ _llm_cache: dict[str, ChatOpenAI] = {}
 
 
 def _get_llm(role: str, model_key: str, temperature: float) -> ChatOpenAI:
-    """Get or create a lazy LLM instance for the given role."""
-    if role not in _llm_cache:
-        _llm_cache[role] = _create_llm(model_key, temperature)
-    return _llm_cache[role]
+    """Get or create a lazy LLM instance keyed by effective config values."""
+    provider = cfg("LLM_PROVIDER", "openai")
+    model = cfg(model_key)
+    cache_key = f"{role}:{provider}:{model}:{temperature}"
+    if cache_key not in _llm_cache:
+        _llm_cache[cache_key] = _create_llm(model_key, temperature)
+    return _llm_cache[cache_key]
 
 
 def get_main_llm() -> ChatOpenAI:

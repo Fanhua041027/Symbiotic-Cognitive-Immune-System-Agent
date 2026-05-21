@@ -231,6 +231,18 @@ with st.sidebar:
         if not w: st.success("Saved!")
 
     st.markdown("---")
+    # System status
+    has_key = bool(cfg("OPENAI_API_KEY") or cfg("DEEPSEEK_API_KEY") or cfg("CUSTOM_API_KEY"))
+    status_color = "#22c55e" if has_key else "#ef4444"
+    status_text = "API Key Configured" if has_key else "No API Key"
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:8px;padding:0.25rem 0">'
+        f'<span style="width:8px;height:8px;border-radius:50%;background:{status_color};display:inline-block"></span>'
+        f'<span style="color:rgba(255,255,255,0.7);font-size:0.75rem">{status_text}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     try:
         from core.memory import memory_db
         mc = memory_db.count()
@@ -342,48 +354,65 @@ with tq:
         with r4: st.metric("Duration", f"{dur:.1f}s")
 
         output = result.get("final_output")
+        err = result.get("error")
+
+        if err:
+            st.error(f"Error: {err}")
+        elif not output:
+            st.info("No output produced. The system may have detected anomalies and triggered immune response.")
+
         if output:
             st.markdown("**Output**")
-            st.code(output[:2000], language="text")
-        else:
-            st.info("No output produced.")
+            st.code(output[:3000], language="text")
 
+        # Execution trace
         trace = result.get("workflow_trace", [])
         if trace:
             st.markdown("**Execution Trace**")
             st.markdown(_render_trace(trace), unsafe_allow_html=True)
 
-        err = result.get("error")
-        if err:
-            st.error(f"Error: {err}")
-
+        # Anomalies section
         anoms = result.get("anomalies", [])
         if anoms:
-            st.markdown(f"**Anomalies ({len(anoms)})**")
+            st.markdown(f"**Detected Anomalies ({len(anoms)})**")
             for i, a in enumerate(anoms, 1):
-                with st.expander(f"#{i}: {a.get('source', 'unknown')}"):
+                src = a.get('source', 'unknown')
+                sv = a.get('status', '')
+                emoji = "🔴" if sv == "unhealthy" else "🟡"
+                with st.expander(f"{emoji} #{i}: [{src}] {a.get('reason', 'N/A')[:80]}"):
                     st.code(a.get("reason", "N/A"), wrap_lines=True)
 
+        # Antibodies section
         abs_ = result.get("antibodies", [])
         if abs_:
-            st.markdown(f"**Antibodies ({len(abs_)})**")
+            st.markdown(f"**Generated Antibodies ({len(abs_)})**")
             for i, ab in enumerate(abs_, 1):
-                with st.expander(f"Antibody #{i}"):
-                    st.markdown(ab.get("explanation", "N/A"))
+                with st.expander(f"🧬 Antibody #{i}"):
+                    st.markdown(f"**Explanation:** {ab.get('explanation', 'N/A')}")
                     st.code(ab.get("code", "N/A"), language="python")
 
+        # Escalation
         if result.get("escalation_report"):
-            st.error(f"Escalation: {result['escalation_report']}")
+            st.error(f"🚨 Escalation triggered: {result['escalation_report']}")
 
+        # Validation status
         vs = result.get("validation_status")
         if vs:
-            st.markdown(f"**Validation:** {'✅' if vs == 'passed' else '❌'} {vs}")
+            v_icon = "✅" if vs == "passed" else "❌"
+            st.markdown(f"**Validation:** {v_icon} {vs}")
 
+        # Immune activation summary
+        ia = result.get("is_immune_active", False)
+        if ia:
+            st.success("🛡️ Immune system was activated and successfully responded to anomalies.")
+
+        # Raw JSON
         if show_raw:
             with st.expander("Raw JSON"):
                 st.json({k: v for k, v in result.items()
                          if k in ("final_output", "anomalies", "antibodies",
-                                  "is_immune_active", "validation_status", "escalation_report")})
+                                  "is_immune_active", "validation_status",
+                                  "escalation_report", "error")})
 
     elif run and not query:
         st.warning("Enter a query.")
@@ -493,15 +522,16 @@ with tg:
 # ================================================================
 with tb:
     st.markdown("### Benchmark")
-    st.markdown("Run 12 adversarial test cases to benchmark detection and recovery.")
+    st.markdown("Run adversarial test cases to benchmark detection and recovery.")
     if st.button("Run Benchmark", type="primary"):
         from tests.adversarial import ADVERSARIAL_QUERIES
+        n_total = len(ADVERSARIAL_QUERIES)
         prog = st.progress(0)
         sts = st.empty()
         results = []
-        stats = {"total": len(ADVERSARIAL_QUERIES), "detected": 0, "immune": 0, "dur": 0.0}
+        stats = {"total": n_total, "detected": 0, "immune": 0, "dur": 0.0}
         for i, q in enumerate(ADVERSARIAL_QUERIES, 1):
-            sts.text(f"Test {i}/{len(ADVERSARIAL_QUERIES)}")
+            sts.text(f"Test {i}/{n_total}")
             start = time.time()
             r = run_single_query(q)
             d = time.time() - start
@@ -509,7 +539,7 @@ with tb:
             if r.get("is_immune_active"): stats["immune"] += 1
             stats["dur"] += d
             results.append({"#": i, "Anomalies": len(r.get("anomalies", [])) > 0, "Immune": r.get("is_immune_active"), "Dur": f"{d:.1f}s"})
-            prog.progress(i / len(ADVERSARIAL_QUERIES))
+            prog.progress(i / n_total)
         sts.text("Done!")
         dr = stats["detected"] / stats["total"] * 100
         ir = stats["immune"] / stats["detected"] * 100 if stats["detected"] > 0 else 0

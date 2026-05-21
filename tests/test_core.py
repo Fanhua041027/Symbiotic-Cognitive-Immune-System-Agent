@@ -800,9 +800,58 @@ class TestConfigHotReload:
     def test_llm_cache_key_includes_provider(self):
         """LLM cache key changes when provider changes."""
         from core.nodes import _llm_cache
-        # _llm_cache is a dict; key format must be role:provider:model:temperature
-        # Verify at least one key matches this format
         if _llm_cache:
             key = list(_llm_cache.keys())[0]
             parts = key.split(":")
             assert len(parts) >= 4  # role : provider : model : temperature
+
+
+class TestConfigSaveLive:
+    """Tests that save_config updates runtime environment."""
+
+    def test_save_config_updates_os_environ(self, tmp_path):
+        """save_config should update os.environ so changes take effect immediately."""
+        import core.config as cfg_mod
+        original_env = os.environ.get("MAX_ITERATIONS", "")
+        original_path = cfg_mod.CONFIG_FILE
+        test_path = tmp_path / ".env_live"
+        test_path.write_text("MAX_ITERATIONS=3\n", encoding="utf-8")
+        cfg_mod.CONFIG_FILE = str(test_path)
+
+        try:
+            # Load from file first
+            os.environ["MAX_ITERATIONS"] = "3"
+            cfg_mod._validated = False
+            cfg_mod.validate_all()
+            assert cfg_mod.get("MAX_ITERATIONS") == 3
+
+            # Save new value
+            warnings = cfg_mod.save_config({"MAX_ITERATIONS": "10"})
+            assert len(warnings) == 0
+
+            # os.environ should be updated
+            assert os.environ.get("MAX_ITERATIONS") == "10"
+            # cfg should reflect new value
+            assert cfg_mod.get("MAX_ITERATIONS") == 10
+        finally:
+            os.environ["MAX_ITERATIONS"] = original_env
+            cfg_mod.CONFIG_FILE = original_path
+
+
+class TestViz:
+    """Tests for visualization module."""
+
+    def test_generate_mermaid_returns_string(self):
+        """generate_mermaid() returns a non-empty string."""
+        from core.viz import generate_mermaid
+        graph = generate_mermaid()
+        assert isinstance(graph, str)
+        assert len(graph) > 50
+        assert "flowchart" in graph
+
+    def test_generate_mermaid_contains_expected_nodes(self):
+        """Mermaid output contains all 4 agent node names."""
+        from core.viz import generate_mermaid
+        graph = generate_mermaid()
+        for node in ("Worker", "Monitor", "Antibody", "Validator"):
+            assert node in graph, f"Missing node {node} in mermaid graph"

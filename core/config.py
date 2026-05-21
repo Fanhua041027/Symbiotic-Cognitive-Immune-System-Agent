@@ -169,6 +169,10 @@ def save_config(updates: dict[str, str]) -> list[str]:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             f.writelines(lines)
 
+        # Sync to process environment so changed values take effect immediately
+        for key, value in updates.items():
+            os.environ[key] = str(value)
+
         # Re-validate and refresh cache
         global _validated
         _validated = False

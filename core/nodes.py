@@ -417,7 +417,7 @@ def validate_antibody_node(state: ImmunologyState) -> dict:
     if not antibodies:
         return {
             "is_immune_active": False,
-            "validation_status": "failed",
+            "validation_status": None,
         }
 
     latest_antibody = antibodies[-1]

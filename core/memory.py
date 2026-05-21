@@ -247,10 +247,13 @@ class ImmunologyMemory:
             try:
                 results = self.collection.query(query_texts=[query], n_results=1)
                 if results["ids"] and results["ids"][0]:
-                    return {
-                        "code": results["metadatas"][0][0]["code"],
-                        "pattern": results["metadatas"][0][0]["error_pattern"],
-                    }
+                    metas = results.get("metadatas", [])
+                    if metas and metas[0]:
+                        meta = metas[0][0]
+                        return {
+                            "code": meta.get("code", ""),
+                            "pattern": meta.get("error_pattern", ""),
+                        }
             except Exception as e:
                 logger.debug("chromadb query failed: %s", e)
             return None

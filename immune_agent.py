@@ -60,6 +60,10 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
 
     from core.workflow import app
     from core.metrics import metrics
+    from core.escalation import escalation
+
+    # Reset per-query state to prevent cross-query bleeding
+    escalation.reset()
 
     config = {"recursion_limit": max(20, cfg("MAX_ITERATIONS", 5) * 4)}
     initial_state = {

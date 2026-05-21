@@ -96,6 +96,15 @@ class EscalationTracker:
         self._consecutive_failures = 0
         return path
 
+    def reset(self) -> None:
+        """Reset consecutive failure counter and history.
+
+        Call this between independent queries to prevent cross-query bleeding.
+        """
+        self._consecutive_failures = 0
+        self._history.clear()
+        logger.debug("Escalation tracker reset")
+
     @property
     def consecutive_failures(self) -> int:
         return self._consecutive_failures

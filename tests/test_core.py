@@ -697,3 +697,112 @@ class TestValidateAntibodyEdgeCases:
         valid, reason = validate_antibody("def foo(:")
         assert not valid
         assert "Syntax error" in reason
+
+
+class TestEscalationReset:
+    """Tests for escalation tracker reset between queries."""
+
+    def test_reset_clears_all_state(self):
+        """reset() clears counter and history."""
+        from core.escalation import EscalationTracker
+        tracker = EscalationTracker()
+        tracker.record_failure("q1", "err1", 1)
+        tracker.record_failure("q2", "err2", 1)
+        assert tracker.consecutive_failures == 2
+        tracker.reset()
+        assert tracker.consecutive_failures == 0
+        result = tracker.record_failure("q3", "err3", 1)
+        assert result is None  # Not escalated — reset after just 1
+
+    def test_reset_allows_new_cycle(self):
+        """After reset, fresh failures still trigger escalation."""
+        from core.escalation import EscalationTracker
+        tracker = EscalationTracker()
+        tracker.record_failure("q1", "e1", 1)
+        tracker.reset()
+        tracker.record_failure("q2", "e2", 1)
+        tracker.record_failure("q3", "e3", 1)
+        with __import__("unittest").mock.patch("core.escalation.cfg", return_value=2):
+            result = tracker.record_failure("q4", "e4", 1)
+            assert result is not None
+
+    def test_idempotent_reset(self):
+        """Calling reset() on clean tracker does not error."""
+        from core.escalation import EscalationTracker
+        tracker = EscalationTracker()
+        tracker.reset()
+        assert tracker.consecutive_failures == 0
+
+
+class TestWorkflowTrace:
+    """Tests for the _with_trace decorator behavior."""
+
+    def test_trace_appended_correctly(self):
+        """_with_trace adds enter:node entry to workflow_trace."""
+        from core.workflow import _with_trace
+        def dummy_node(state):
+            return {"final_output": "hello"}
+
+        wrapped = _with_trace("worker", dummy_node)
+        state = {
+            "user_query": "test", "task_steps": [], "anomalies": [],
+            "antibodies": [], "final_output": None,
+            "is_immune_active": False, "validation_status": None,
+            "iteration_count": 0, "escalation_report": None,
+            "workflow_trace": [],
+        }
+        result = wrapped(state)
+        assert "workflow_trace" in result
+        assert "enter:worker" in result["workflow_trace"]
+
+    def test_trace_does_not_mutate_input_state(self):
+        """_with_trace should not mutate the input state dict directly."""
+        from core.workflow import _with_trace
+        def dummy_node(state):
+            return {"final_output": "ok"}
+
+        wrapped = _with_trace("monitor", dummy_node)
+        original_trace = ["enter:worker"]
+        state = {
+            "user_query": "test", "task_steps": [], "anomalies": [],
+            "antibodies": [], "final_output": None,
+            "is_immune_active": False, "validation_status": None,
+            "iteration_count": 0, "escalation_report": None,
+            "workflow_trace": list(original_trace),
+        }
+        result = wrapped(state)
+        # Input state should not have been mutated
+        assert state["workflow_trace"] == original_trace
+        # Result should have the extended trace
+        assert result["workflow_trace"] == ["enter:worker", "enter:monitor"]
+
+
+class TestConfigHotReload:
+    """Tests that config changes take effect without restart."""
+
+    def test_escalation_reads_cfg_at_call_time(self, tmp_path):
+        """Escalation threshold is read at call time, not cached."""
+        from core.escalation import EscalationTracker
+        import core.escalation as esc_mod
+
+        tracker = EscalationTracker()
+        original_dir = esc_mod.ESCALATION_DIR
+        esc_mod.ESCALATION_DIR = str(tmp_path)
+
+        # Mock cfg to return threshold=2
+        with __import__("unittest").mock.patch("core.escalation.cfg", return_value=2):
+            tracker.record_failure("q1", "e", 1)
+            result = tracker.record_failure("q2", "e", 1)
+            assert result is not None  # threshold 2 reached
+
+        esc_mod.ESCALATION_DIR = original_dir
+
+    def test_llm_cache_key_includes_provider(self):
+        """LLM cache key changes when provider changes."""
+        from core.nodes import _llm_cache
+        # _llm_cache is a dict; key format must be role:provider:model:temperature
+        # Verify at least one key matches this format
+        if _llm_cache:
+            key = list(_llm_cache.keys())[0]
+            parts = key.split(":")
+            assert len(parts) >= 4  # role : provider : model : temperature

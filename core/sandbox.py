@@ -137,7 +137,10 @@ def validate_docker(code: str) -> tuple[bool, str]:
         logger.error("Docker validation error: %s", e)
         return validate_ast(code)
     finally:
-        os.unlink(host_path)
+        try:
+            os.unlink(host_path)
+        except OSError:
+            pass
 
 
 def _docker_available() -> bool:

@@ -43,14 +43,13 @@ def _with_trace(node_name: str, func):
     def wrapped(state: ImmunologyState) -> dict:
         trace = list(state.get("workflow_trace") or [])
         trace.append(f"enter:{node_name}")
-        state["workflow_trace"] = trace
         logger.debug("Trace: entering %s (iter=%d)", label, state.get("iteration_count", 0))
 
         result = func(state)
 
-        # Ensure trace is preserved even if node function didn't return it
+        # Preserve trace in return dict without mutating input state
         if isinstance(result, dict) and "workflow_trace" not in result:
-            result["workflow_trace"] = list(state.get("workflow_trace") or [])
+            result["workflow_trace"] = trace
         return result
 
     return wrapped

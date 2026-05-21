@@ -16,16 +16,70 @@ logger = setup_logger("nodes")
 load_dotenv()
 
 # ---------------------------------------------------------------------------
-# LLM 初始化
+# LLM Provider 抽象层
+# ---------------------------------------------------------------------------
+PROVIDER_ENDPOINTS = {
+    "openai": "https://api.openai.com/v1",
+    "deepseek": "https://api.deepseek.com",
+    "custom": None,  # 从 CUSTOM_API_BASE 读取
+}
+
+
+def _resolve_llm_params() -> dict:
+    """根据 LLM_PROVIDER 配置返回 api_key 和 base_url。"""
+    provider = cfg("LLM_PROVIDER", "openai")
+
+    if provider == "openai":
+        return {
+            "api_key": cfg("OPENAI_API_KEY"),
+            "base_url": PROVIDER_ENDPOINTS["openai"],
+        }
+    elif provider == "deepseek":
+        return {
+            "api_key": cfg("DEEPSEEK_API_KEY"),
+            "base_url": PROVIDER_ENDPOINTS["deepseek"],
+        }
+    elif provider == "custom":
+        return {
+            "api_key": cfg("CUSTOM_API_KEY"),
+            "base_url": cfg("CUSTOM_API_BASE"),
+        }
+    else:
+        logger.warning("Unknown LLM_PROVIDER=%s, falling back to openai", provider)
+        return {
+            "api_key": cfg("OPENAI_API_KEY"),
+            "base_url": PROVIDER_ENDPOINTS["openai"],
+        }
+
+
+def _create_llm(model_key: str, temperature: float) -> ChatOpenAI:
+    """创建适配当前 Provider 的 LLM 实例。"""
+    params = _resolve_llm_params()
+    model = cfg(model_key)
+    logger.info(
+        "LLM init: provider=%s model=%s endpoint=%s",
+        cfg("LLM_PROVIDER", "openai"), model,
+        params.get("base_url", "unknown"),
+    )
+    return ChatOpenAI(
+        model=model,
+        temperature=temperature,
+        api_key=params["api_key"],
+        base_url=params["base_url"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# LLM 实例（延迟初始化，支持 provider 切换）
 # ---------------------------------------------------------------------------
 MAIN_MODEL = cfg("MAIN_LLM_MODEL", "gpt-4o")
 MONITOR_MODEL = cfg("MONITOR_LLM_MODEL", "gpt-4o-mini")
 ANTIBODY_MODEL = cfg("ANTIBODY_LLM_MODEL", "gpt-4o")
 TEMPERATURE = cfg("LLM_TEMPERATURE", 0.7)
 
-main_llm = ChatOpenAI(model=MAIN_MODEL, temperature=TEMPERATURE)
-monitor_llm = ChatOpenAI(model=MONITOR_MODEL, temperature=0.0)
-antibody_llm = ChatOpenAI(model=ANTIBODY_MODEL, temperature=0.2)
+main_llm = _create_llm("MAIN_LLM_MODEL", TEMPERATURE)
+monitor_llm = _create_llm("MONITOR_LLM_MODEL", 0.0)
+antibody_llm = _create_llm("ANTIBODY_LLM_MODEL", 0.2)
 
 
 # ---------------------------------------------------------------------------

@@ -17,7 +17,11 @@ logger = setup_logger("config")
 
 # Validation rules: (key, default, type, required, description)
 _CONFIG_DEFS: list[tuple[str, Any, type, bool, str]] = [
+    ("LLM_PROVIDER", "openai", str, False, "LLM provider: openai/deepseek/custom"),
     ("OPENAI_API_KEY", None, str, True, "OpenAI API key"),
+    ("DEEPSEEK_API_KEY", None, str, False, "DeepSeek API key (required if LLM_PROVIDER=deepseek)"),
+    ("CUSTOM_API_KEY", None, str, False, "Custom API key (required if LLM_PROVIDER=custom)"),
+    ("CUSTOM_API_BASE", None, str, False, "Custom API base URL (required if LLM_PROVIDER=custom)"),
     ("MAIN_LLM_MODEL", "gpt-4o", str, False, "Worker LLM model"),
     ("MONITOR_LLM_MODEL", "gpt-4o-mini", str, False, "Monitor LLM model"),
     ("ANTIBODY_LLM_MODEL", "gpt-4o", str, False, "Antibody generator LLM model"),
@@ -34,6 +38,10 @@ _validated = False
 
 VALID_SANDBOX_MODES = {"simulated", "ast", "docker"}
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
+VALID_PROVIDERS = {"openai", "deepseek", "custom"}
+
+# API key fields (masked in display)
+_API_KEY_FIELDS = {"OPENAI_API_KEY", "DEEPSEEK_API_KEY", "CUSTOM_API_KEY"}
 
 
 def validate_all() -> list[str]:
@@ -78,6 +86,26 @@ def validate_all() -> list[str]:
         )
         _values["LOG_LEVEL"] = "INFO"
 
+    # Provider-specific validation
+    provider = _values.get("LLM_PROVIDER", "openai")
+    if provider not in VALID_PROVIDERS:
+        warnings.append(
+            f"INVALID: LLM_PROVIDER={provider!r} — must be one of {VALID_PROVIDERS}"
+        )
+        _values["LLM_PROVIDER"] = "openai"
+    elif provider == "deepseek" and not _values.get("DEEPSEEK_API_KEY"):
+        warnings.append(
+            "MISSING: DEEPSEEK_API_KEY — required when LLM_PROVIDER=deepseek"
+        )
+    elif provider == "custom" and not _values.get("CUSTOM_API_KEY"):
+        warnings.append(
+            "MISSING: CUSTOM_API_KEY — required when LLM_PROVIDER=custom"
+        )
+    elif provider == "custom" and not _values.get("CUSTOM_API_BASE"):
+        warnings.append(
+            "MISSING: CUSTOM_API_BASE — required when LLM_PROVIDER=custom"
+        )
+
     global _validated
     _validated = True
 
@@ -97,7 +125,7 @@ def show_summary() -> None:
 
     logger.info("Configuration loaded:")
     for key, default, cast_type, required, desc in _CONFIG_DEFS:
-        if key == "OPENAI_API_KEY":
+        if key in _API_KEY_FIELDS:
             val = "****" if _values.get(key) else "NOT SET"
         else:
             val = _values.get(key, default)

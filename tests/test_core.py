@@ -277,6 +277,66 @@ class TestConfig:
         assert "custom" in VALID_PROVIDERS
 
 
+class TestMetrics:
+    """Tests for the metrics tracking module."""
+
+    def test_empty_metrics_summary(self):
+        from core.metrics import MetricsTracker
+        mt = MetricsTracker(window_size=10)
+        summary = mt.get_summary()
+        assert summary["status"] == "no_data"
+        assert summary["records"] == 0
+
+    def test_record_query_tracks_anomaly(self):
+        from core.metrics import MetricsTracker
+        mt = MetricsTracker(window_size=10)
+        result = {
+            "user_query": "test query",
+            "final_output": "result",
+            "anomalies": [{"source": "monitor", "reason": "loop detected"}],
+            "antibodies": [{"code": "fix"}],
+            "is_immune_active": True,
+            "validation_status": "passed",
+            "escalation_report": None,
+        }
+        mt.record_query(result)
+        summary = mt.get_summary()
+        assert summary["records"] == 1
+        assert summary["anomaly_rate"] == 100.0
+        assert "monitor" in summary["anomaly_breakdown"]
+
+    def test_record_failed_query(self):
+        from core.metrics import MetricsTracker
+        mt = MetricsTracker(window_size=10)
+        result = {
+            "user_query": "bad query",
+            "final_output": None,
+            "anomalies": [],
+            "antibodies": [],
+            "is_immune_active": False,
+            "validation_status": None,
+            "escalation_report": None,
+        }
+        mt.record_query(result)
+        summary = mt.get_summary()
+        assert summary["success_rate"] == 0.0
+
+    def test_metrics_window_limit(self):
+        from core.metrics import MetricsTracker
+        mt = MetricsTracker(window_size=3)
+        for i in range(5):
+            mt.record_query({
+                "user_query": f"q{i}",
+                "final_output": "ok",
+                "anomalies": [],
+                "antibodies": [],
+                "is_immune_active": False,
+                "validation_status": None,
+                "escalation_report": None,
+            })
+        assert mt.get_summary()["records"] == 3
+
+
 class TestLogger:
     def test_logger_creation(self):
         from core.logger import setup_logger

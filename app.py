@@ -88,8 +88,8 @@ st.markdown(
 )
 
 # Tab layout
-tab_query, tab_graph, tab_benchmark = st.tabs(
-    ["Run Query", "Workflow Graph", "Benchmark"]
+tab_query, tab_graph, tab_benchmark, tab_metrics = st.tabs(
+    ["Run Query", "Workflow Graph", "Benchmark", "Metrics"]
 )
 
 # ===== Tab 1: Run Query =====
@@ -356,3 +356,61 @@ with tab_benchmark:
 
         st.subheader("Results by Test Case")
         st.table(results)
+
+# ===== Tab 4: Metrics =====
+with tab_metrics:
+    from core.metrics import metrics as metrics_tracker
+
+    st.subheader("System Metrics")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        summary = metrics_tracker.get_summary()
+
+        if summary.get("status") == "no_data":
+            st.info("No query data yet. Run some queries first!")
+        else:
+            row1 = st.columns(4)
+            with row1[0]:
+                st.metric("Total Queries", summary["records"])
+            with row1[1]:
+                st.metric("Success Rate", f'{summary["success_rate"]}%')
+            with row1[2]:
+                st.metric("Anomaly Rate", f'{summary["anomaly_rate"]}%')
+            with row1[3]:
+                st.metric("Immune Activation", f'{summary["immune_activation_rate"]}%')
+
+            st.markdown("### Latency")
+            lat = summary.get("latency", {})
+            row2 = st.columns(3)
+            with row2[0]:
+                st.metric("Average", f'{lat.get("avg_seconds", 0):.2f}s')
+            with row2[1]:
+                st.metric("P95", f'{lat.get("p95_seconds", 0):.2f}s')
+            with row2[2]:
+                st.metric("Max", f'{lat.get("max_seconds", 0):.2f}s')
+
+            st.markdown("### Anomaly Sources")
+            anomaly_breakdown = summary.get("anomaly_breakdown", {})
+            if anomaly_breakdown:
+                st.bar_chart(anomaly_breakdown)
+            else:
+                st.caption("No anomalies recorded")
+
+            st.markdown("### Session Info")
+            st.code(
+                f"Session duration: {summary['session_duration_seconds']:.0f}s\n"
+                f"Total LLM time:   {summary['total_llm_time_seconds']:.1f}s\n"
+                f"Escalation rate:  {summary['escalation_rate']}%\n"
+                f"Avg antibodies:   {summary['avg_antibodies_per_query']:.2f}",
+                language="text",
+            )
+
+    with col2:
+        st.markdown("### Actions")
+        if st.button("Save Metrics Report", use_container_width=True):
+            path = metrics_tracker.save_report()
+            st.success(f"Saved to {path}")
+        if st.button("Reset Metrics", use_container_width=True):
+            st.rerun()

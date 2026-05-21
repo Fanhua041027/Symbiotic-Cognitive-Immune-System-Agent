@@ -1,7 +1,6 @@
 """核心智能体节点：主智能体、监察员T细胞、抗体生成器、沙箱验证器。"""
 
 import json
-import os
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -10,6 +9,7 @@ from core.state import ImmunologyState
 from core.memory import memory_db
 from core.logger import setup_logger
 from core.sandbox import validate_antibody
+from core.config import get as cfg
 
 logger = setup_logger("nodes")
 
@@ -18,10 +18,10 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # LLM 初始化
 # ---------------------------------------------------------------------------
-MAIN_MODEL = os.getenv("MAIN_LLM_MODEL", "gpt-4o")
-MONITOR_MODEL = os.getenv("MONITOR_LLM_MODEL", "gpt-4o-mini")
-ANTIBODY_MODEL = os.getenv("ANTIBODY_LLM_MODEL", "gpt-4o")
-TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+MAIN_MODEL = cfg("MAIN_LLM_MODEL", "gpt-4o")
+MONITOR_MODEL = cfg("MONITOR_LLM_MODEL", "gpt-4o-mini")
+ANTIBODY_MODEL = cfg("ANTIBODY_LLM_MODEL", "gpt-4o")
+TEMPERATURE = cfg("LLM_TEMPERATURE", 0.7)
 
 main_llm = ChatOpenAI(model=MAIN_MODEL, temperature=TEMPERATURE)
 monitor_llm = ChatOpenAI(model=MONITOR_MODEL, temperature=0.0)
@@ -271,7 +271,7 @@ def validate_antibody_node(state: ImmunologyState) -> dict:
             antibody_code=code,
             context=state.get("user_query", ""),
         )
-        logger.info("Antibody validated and stored (mode=%s)", os.getenv("SANDBOX_MODE", "simulated"))
+        logger.info("Antibody validated and stored (mode=%s)", cfg("SANDBOX_MODE", "simulated"))
         return {
             "is_immune_active": True,
             "validation_status": "passed",

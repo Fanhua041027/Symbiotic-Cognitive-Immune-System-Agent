@@ -15,10 +15,11 @@ import tempfile
 from typing import Optional
 
 from core.logger import setup_logger
+from core.config import get as cfg
 
 logger = setup_logger("sandbox")
 
-SANDBOX_MODE = os.getenv("SANDBOX_MODE", "simulated").lower()
+SANDBOX_MODE = cfg("SANDBOX_MODE", "simulated").lower()
 
 
 # ---------------------------------------------------------------------------

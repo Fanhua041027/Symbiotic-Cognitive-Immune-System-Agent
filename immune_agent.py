@@ -23,18 +23,24 @@ import sys
 from dotenv import load_dotenv
 
 from core.logger import setup_logger
+from core.config import validate_all, show_summary
 
 load_dotenv()
 
 logger = setup_logger("cli")
 
-# 检查 API Key
-if not os.getenv("OPENAI_API_KEY"):
-    logger.error(
-        "OPENAI_API_KEY is not set. "
-        "Copy .env.example to .env and fill in your API key."
-    )
-    sys.exit(1)
+# 启动时校验配置
+config_warnings = validate_all()
+show_summary()
+
+if config_warnings:
+    has_critical = any(w.startswith("MISSING: OPENAI_API_KEY") for w in config_warnings)
+    if has_critical:
+        logger.error(
+            "OPENAI_API_KEY is not set. "
+            "Copy .env.example to .env and fill in your API key."
+        )
+        sys.exit(1)
 
 
 def run_single_query(query: str) -> dict:

@@ -1,6 +1,5 @@
 """LangGraph 工作流定义，将各节点连接为闭环免疫系统。"""
 
-import os
 from typing import Literal
 
 from dotenv import load_dotenv
@@ -11,6 +10,7 @@ load_dotenv()
 from core.logger import setup_logger
 from core.state import ImmunologyState
 from core.escalation import escalation
+from core.config import get as cfg
 from core.nodes import (
     main_worker_node,
     monitor_node,
@@ -24,7 +24,7 @@ Route = Literal["continue", "immune_response", "end"]
 
 logger = setup_logger("workflow")
 
-MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "5"))
+MAX_ITERATIONS = cfg("MAX_ITERATIONS", 5)
 
 
 def should_continue(state: ImmunologyState) -> Route:

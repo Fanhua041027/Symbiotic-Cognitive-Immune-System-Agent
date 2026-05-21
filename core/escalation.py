@@ -10,13 +10,14 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from core.logger import setup_logger
+from core.config import get as cfg
 
 logger = setup_logger("escalation")
 
 ESCALATION_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "escalations"
 )
-MAX_FAILURES = int(os.getenv("ESCALATION_THRESHOLD", "3"))
+MAX_FAILURES = cfg("ESCALATION_THRESHOLD", 3)
 
 
 class EscalationTracker:

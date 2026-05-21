@@ -55,7 +55,7 @@ class MetricsTracker:
         record = QueryRecord(
             timestamp=time.time(),
             query_prefix=(result.get("user_query", "") or "")[:60],
-            duration=0.0,  # filled externally
+            duration=result.get("duration", 0.0),
             has_anomaly=has_anomaly,
             anomaly_sources=anomaly_sources,
             antibody_count=len(result.get("antibodies") or []),

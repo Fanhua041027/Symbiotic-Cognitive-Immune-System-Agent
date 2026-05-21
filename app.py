@@ -64,10 +64,10 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Immune Memory")
-    from core.memory import memory_db
 
     try:
-        mem_count = memory_db.collection.count()
+        from core.memory import memory_db
+        mem_count = memory_db.count()
     except Exception:
         mem_count = "N/A"
 
@@ -87,10 +87,13 @@ st.markdown(
     "**self-healing**, and **self-evolution** capabilities."
 )
 
+# Session state for query history
+if "query_history" not in st.session_state:
+    st.session_state.query_history = []
+
 # Tab layout
-tab_query, tab_graph, tab_benchmark, tab_metrics = st.tabs(
-    ["Run Query", "Workflow Graph", "Benchmark", "Metrics"]
-)
+tabs = st.tabs(["Run Query", "History", "Workflow Graph", "Benchmark", "Metrics"])
+tab_query, tab_history, tab_graph, tab_benchmark, tab_metrics = tabs
 
 # ===== Tab 1: Run Query =====
 with tab_query:
@@ -133,6 +136,17 @@ with tab_query:
             start_time = time.time()
             result = run_single_query(query)
             duration = time.time() - start_time
+
+            # Record history
+            st.session_state.query_history.append({
+                "query": query,
+                "duration": f"{duration:.1f}s",
+                "anomalies": len(result.get("anomalies", [])),
+                "antibodies": len(result.get("antibodies", [])),
+                "immune_active": result.get("is_immune_active", False),
+                "validation": result.get("validation_status", "N/A"),
+                "timestamp": time.strftime("%H:%M:%S"),
+            })
 
         with result_placeholder:
             # Summary metrics
@@ -214,7 +228,51 @@ with tab_query:
     elif run_btn and not query:
         st.warning("Please enter a query.")
 
-# ===== Tab 2: Workflow Graph =====
+# ===== Tab 2: History =====
+with tab_history:
+    st.subheader("Query History")
+
+    history = st.session_state.query_history
+    if not history:
+        st.info("No queries yet. Run some queries in the Query tab!")
+    else:
+        # Summary stats
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Queries", len(history))
+        with col2:
+            st.metric("Total Anomalies", sum(h["anomalies"] for h in history))
+        with col3:
+            st.metric("Immune Activations", sum(1 for h in history if h["immune_active"]))
+
+        # History table
+        st.markdown("### Recent Queries")
+        display_history = list(reversed(history[-50:]))
+        table_data = [
+            {
+                "Time": h["timestamp"],
+                "Query": h["query"][:60] + ("..." if len(h["query"]) > 60 else ""),
+                "Anomalies": h["anomalies"],
+                "Antibodies": h["antibodies"],
+                "Immune": "Yes" if h["immune_active"] else "No",
+                "Valid": h["validation"],
+                "Duration": h["duration"],
+            }
+            for h in display_history
+        ]
+        st.dataframe(table_data, use_container_width=True)
+
+        st.markdown("### Actions")
+        col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+        with col_btn1:
+            if st.button("Clear History", use_container_width=True):
+                st.session_state.query_history = []
+                st.rerun()
+        with col_btn2:
+            if st.button("Export as JSON", use_container_width=True):
+                st.json(history[-50:])
+
+# ===== Tab 3: Workflow Graph =====
 with tab_graph:
     st.subheader("Immune System Workflow")
 

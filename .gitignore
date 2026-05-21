@@ -222,3 +222,7 @@ logs/
 escalations/
 benchmarks/
 .immune_db/
+
+# Stray project files
+2026519/
+行动指南.txt

@@ -54,6 +54,7 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
         query: 用户输入的问题
         timeout: 超时秒数（默认 60s，超过返回 timeout 错误）
     """
+    import concurrent.futures
     import signal
     import time as _time
 
@@ -77,22 +78,34 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
     class TimeoutError_(Exception):
         pass
 
-    def _timeout_handler(signum, frame):
-        raise TimeoutError_(f"Query timed out after {timeout}s")
+    start_time = _time.time()
 
-    original_handler = None
-    if hasattr(signal, "SIGALRM"):
+    # Use SIGALRM on Unix, threading fallback on Windows
+    use_alarm = hasattr(signal, "SIGALRM")
+    if use_alarm:
+        def _timeout_handler(signum, frame):
+            raise TimeoutError_(f"Query timed out after {timeout}s")
         original_handler = signal.signal(signal.SIGALRM, _timeout_handler)
         signal.alarm(int(timeout))
 
     try:
-        start_time = _time.time()
-        result = app.invoke(initial_state, config=config)
+        if use_alarm:
+            result = app.invoke(initial_state, config=config)
+        else:
+            # Windows: use ThreadPoolExecutor for timeout
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(app.invoke, initial_state, config)
+                try:
+                    result = future.result(timeout=timeout)
+                except concurrent.futures.TimeoutError:
+                    raise TimeoutError_(f"Query timed out after {timeout}s")
+
         duration = _time.time() - start_time
         result["user_query"] = query
         result["duration"] = duration
-        metrics_record = metrics.record_query(result)
+        metrics.record_query(result)
         return result
+
     except TimeoutError_ as e:
         logger.error("Workflow timed out: %s", e)
         error_result = {"final_output": None, "error": str(e), "user_query": query}
@@ -104,9 +117,9 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
         metrics.record_query(error_result)
         return error_result
     finally:
-        if hasattr(signal, "SIGALRM"):
+        if use_alarm:
             signal.alarm(0)
-            if original_handler:
+            if 'original_handler' in locals() and original_handler:
                 signal.signal(signal.SIGALRM, original_handler)
 
 

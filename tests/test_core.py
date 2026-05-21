@@ -407,8 +407,40 @@ class TestMemory:
         listed = store.list_antibodies(limit=3)
         assert len(listed) == 3
 
+    def test_dedup_exact_duplicate(self):
+        """Storing the same antibody twice skips the second."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        stored1 = store.store_antibody("infinite loop risk", "while counter < max: break", "loop fix")
+        stored2 = store.store_antibody("infinite loop risk", "while counter < max: break", "loop fix")
+        assert stored1 is True
+        assert stored2 is False
+        assert store.count() == 1
 
-    def test_delete_antibody_by_index(self):
+    def test_dedup_similar_pattern(self):
+        """Storing a very similar antibody pattern is skipped."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        store.store_antibody("infinite loop detected in while", "while counter < limit: counter += 1", "context")
+        stored2 = store.store_antibody("infinite loop in while True", "while counter < limit: counter += 1", "context")
+        assert stored2 is False
+        assert store.count() == 1
+
+    def test_dedup_different_antibody_stored(self):
+        """Different antibodies are both stored."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        store.store_antibody("infinite loop", "while counter < max: break", "loop fix")
+        store.store_antibody("recursion error", "if depth > limit: return", "recursion guard")
+        assert store.count() == 2
+
+    def test_dedup_empty_store(self):
+        """First antibody always stores successfully."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        result = store.store_antibody("first error", "first fix", "first")
+        assert result is True
+        assert store.count() == 1
         """Deleting an in-memory antibody by index works."""
         from core.memory import InMemoryStore
         store = InMemoryStore()

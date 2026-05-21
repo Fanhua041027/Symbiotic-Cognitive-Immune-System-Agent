@@ -1,6 +1,8 @@
 """核心智能体节点：主智能体、监察员T细胞、抗体生成器、沙箱验证器。"""
 
 import json
+import os
+import subprocess
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -83,6 +85,48 @@ antibody_llm = _create_llm("ANTIBODY_LLM_MODEL", 0.2)
 
 
 # ---------------------------------------------------------------------------
+# Git 自动备份 (免疫响应时创建安全快照)
+# ---------------------------------------------------------------------------
+_AUTO_BACKUP_ENABLED = True
+
+
+def _auto_git_backup(error_pattern: str) -> None:
+    """Create an automatic git checkpoint when an immune response fires."""
+    if not _AUTO_BACKUP_ENABLED:
+        return
+    try:
+        # Check if we're in a git repo
+        repo_root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+        if not repo_root:
+            return
+
+        # Check for changes to commit
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+        if not status:
+            return
+
+        # Stage all and commit with immune response message
+        subprocess.run(
+            ["git", "add", "-A"],
+            capture_output=True, timeout=10
+        )
+        msg = f"immune: auto-backup before antibody — {error_pattern[:60]}"
+        subprocess.run(
+            ["git", "commit", "-m", msg, "--no-gpg-sign"],
+            capture_output=True, timeout=10
+        )
+        logger.info("Auto git backup created: %s", msg)
+    except Exception as e:
+        logger.debug("Auto git backup skipped: %s", e)
+
+
+# ---------------------------------------------------------------------------
 # 执行轨迹辅助
 # ---------------------------------------------------------------------------
 def _append_trace(state: ImmunologyState, entry: str) -> list[str]:
@@ -130,22 +174,28 @@ def main_worker_node(state: ImmunologyState) -> dict:
             f"[Fix Explanation]: {last_antibody['explanation']}\n"
         )
 
-    full_prompt = f"""You are a professional assistant. Complete the user's task below.
+    full_prompt = f"""You are a reasoning agent with self-diagnosis capabilities. Complete the user's task below.
 
 User task: {query}
 {injected_context}
 
-**Self-Check Instruction:**
-After formulating your response, check your own reasoning:
-1. Does your approach risk an infinite loop?
-2. Are there any logical contradictions?
-3. Is the solution complete and correct?
+**Step 1 — Reason step by step:**
+Before writing any code, think through the problem. Consider edge cases,
+input validation, termination conditions, and resource constraints.
 
-If you detect ANY issue with your own reasoning, start your response with:
-COGNITIVE_ANOMALY: <describe the issue>
-Then provide the problematic reasoning.
+**Step 2 — Self-Check (mandatory):**
+Analyze your own reasoning for these defect patterns:
+1. **Infinite loop risk** — Does any loop/recursion have a guaranteed termination condition?
+2. **Logical contradiction** — Does any condition conflict with another (e.g., x > 10 AND x < 5)?
+3. **Missing base case** — Does recursion have an exit branch?
+4. **Resource safety** — Are file handles, network connections, or memory bounded?
+5. **Type/correctness** — Are types consistent? Does the logic actually solve the problem?
 
-If everything is fine, provide your final answer directly.
+**Step 3 — Output:**
+- If you detect ANY issue, start with: COGNITIVE_ANOMALY: <pattern_name> — <specific description>
+  Then show the problematic reasoning.
+- If everything is clean, provide your final solution directly.
+- For code solutions: always include at minimum a max-iteration guard or recursion depth limit.
 """
 
     # 自增迭代计数
@@ -212,21 +262,27 @@ def monitor_node(state: ImmunologyState) -> dict:
     steps = state["task_steps"]
     query = state["user_query"]
 
-    prompt = f"""You are a T-Cell inspector for an AI immune system.
+    prompt = f"""You are a T-Cell inspector in an AI immune system. Your role is to detect cognitive anomalies in the worker agent's output.
 
 Analyze the worker agent's execution steps: {json.dumps(steps, ensure_ascii=False)}
 
 Original user query: {query}
 
-Inspection checklist:
-1. Are there repeated or redundant steps?
-2. Is the logic self-contradictory?
-3. Is there evidence of an infinite loop?
-4. Does the output actually answer the user's query?
+**Inspection Checklist (check ALL categories):**
+1. **Loop/Recursion safety** — Is there a guaranteed termination condition? Any risk of infinite loop?
+2. **Logical consistency** — Are there contradictory conditions or unreachable branches?
+3. **Completeness** — Does the output fully answer the query? Are edge cases handled?
+4. **Safety** — Does the code use dangerous operations (exec, eval, unsafe subprocess)?
+5. **Progression** — Compare with any previous steps. Is the agent making progress or repeating?
 
-Return ONLY a JSON object with exactly this format:
-- If healthy: {{"status": "healthy"}}
-- If unhealthy: {{"status": "unhealthy", "reason": "<specific reason>"}}
+Return ONLY a JSON object with exactly one of these formats:
+- Healthy: {{"status": "healthy", "confidence": "high"}}
+- Unhealthy: {{"status": "unhealthy", "reason": "<concise specific reason>", "severity": "high|medium|low"}}
+
+Examples:
+- Healthy: {{"status": "healthy", "confidence": "high"}}
+- Infinite loop risk: {{"status": "unhealthy", "reason": "while True with no break condition", "severity": "high"}}
+- Contradiction: {{"status": "unhealthy", "reason": "if x > 10 and x < 5 is impossible", "severity": "medium"}}
 """
 
     try:
@@ -269,16 +325,26 @@ def generate_antibody_node(state: ImmunologyState) -> dict:
     anomaly = anomalies[-1] if anomalies else {"reason": "Unknown anomaly"}
     query = state["user_query"]
 
-    prompt = f"""The system has detected an anomaly: {anomaly.get('reason', 'Unknown')}
+    prompt = f"""The system has detected a cognitive anomaly: {anomaly.get('reason', 'Unknown')}
+Severity: {anomaly.get('severity', 'medium')}
 User request: {query}
 
-Generate a Python code snippet or enhanced prompt template as an "antibody"
-to prevent this error from recurring.
+Generate a Python code "antibody" — a self-contained patch that prevents this anomaly from recurring.
 
-Requirements:
-1. Code must be self-contained and insertable into the previous context.
-2. Include a brief explanation of why this patch works.
-3. Return ONLY valid JSON: {{"code": "...", "explanation": "..."}}
+**Antibody Requirements:**
+1. Code must be syntactically valid Python, ready to insert into the previous context.
+2. Must include a **termination guard** (max iterations, depth limit, or sentinel check).
+3. Must include inline comments explaining the guard logic.
+4. Explanation must describe: (a) what caused the anomaly, (b) how the antibody prevents it.
+
+**Output Format — Return ONLY valid JSON:**
+{{"code": "# antibody code here", "explanation": "why this works (2-3 sentences)"}}
+
+**Template patterns for common anomalies:**
+- Infinite loop → max iteration counter + break condition
+- Missing base case → depth limit with early return
+- Logical contradiction → explicit precondition validation
+- Resource leak → try/finally or context manager
 """
 
     try:
@@ -337,12 +403,18 @@ def validate_antibody_node(state: ImmunologyState) -> dict:
         if anomalies:
             error_pattern = anomalies[-1].get("reason", error_pattern)[:100]
 
-        memory_db.store_antibody(
+        stored = memory_db.store_antibody(
             error_pattern=error_pattern,
             antibody_code=code,
             context=state.get("user_query", ""),
         )
-        logger.info("Antibody validated and stored (mode=%s)", cfg("SANDBOX_MODE", "simulated"))
+        logger.info(
+            "Antibody validated and stored (mode=%s, dedup_skipped=%s)",
+            cfg("SANDBOX_MODE", "simulated"),
+            not stored,
+        )
+        # Automatic git checkpoint on immune response
+        _auto_git_backup(error_pattern)
         return {
             "is_immune_active": True,
             "validation_status": "passed",

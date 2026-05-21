@@ -29,7 +29,14 @@ class InMemoryStore:
     def __init__(self):
         self._antibodies: list[dict] = []
 
-    def store_antibody(self, error_pattern: str, antibody_code: str, context: str) -> None:
+    def store_antibody(self, error_pattern: str, antibody_code: str, context: str) -> bool:
+        """Store antibody if no similar one exists. Returns True if stored."""
+        # Dedup: check if a similar antibody already exists
+        if self._find_similar(error_pattern, antibody_code):
+            logger.debug(
+                "Skipping duplicate antibody for pattern: %s...", error_pattern[:40]
+            )
+            return False
         self._antibodies.append({
             "error_pattern": error_pattern,
             "code": antibody_code,
@@ -38,6 +45,18 @@ class InMemoryStore:
         logger.info(
             "Stored antibody (in-memory) for pattern: %s...", error_pattern[:50]
         )
+        return True
+
+    def _find_similar(self, error_pattern: str, antibody_code: str) -> bool:
+        """Check if a similar antibody already exists (Jaccard overlap >= 0.7)."""
+        if not self._antibodies:
+            return False
+        combined = (error_pattern + " " + antibody_code).lower()
+        for ab in self._antibodies:
+            existing = (ab.get("error_pattern", "") + " " + ab.get("code", "")).lower()
+            if ImmunologyMemory._token_similarity(combined, existing) >= 0.7:
+                return True
+        return False
 
     @staticmethod
     def _token_score(text: str, query_tokens: set[str]) -> float:
@@ -127,20 +146,50 @@ class ImmunologyMemory:
 
     def store_antibody(
         self, error_pattern: str, antibody_code: str, context: str
-    ) -> None:
-        """存储有效的抗体到向量数据库。"""
+    ) -> bool:
+        """存储有效的抗体到向量数据库。Returns False if duplicate was skipped."""
         antibody_id = str(uuid.uuid4())
         if self._backend == "chromadb":
+            # Dedup: skip if similar antibody already exists in collection
+            try:
+                results = self.collection.query(
+                    query_texts=[context + " " + error_pattern],
+                    n_results=1,
+                )
+                if results["ids"] and results["ids"][0]:
+                    existing_meta = (results.get("metadatas") or [[{}]])[0][0]
+                    existing_code = existing_meta.get("code", "")
+                    if existing_code and self._token_similarity(antibody_code, existing_code) > 0.7:
+                        logger.debug("Skipping duplicate antibody (chromadb): %s...", error_pattern[:40])
+                        return False
+            except Exception:
+                pass  # Proceed with store on query failure
+
             self.collection.add(
                 documents=[context],
                 ids=[antibody_id],
                 metadatas=[{"error_pattern": error_pattern, "code": antibody_code}],
             )
         else:
-            self._in_memory.store_antibody(error_pattern, antibody_code, context)
+            stored = self._in_memory.store_antibody(error_pattern, antibody_code, context)
+            if not stored:
+                return False
+
         logger.info(
             "Stored new antibody for pattern: %s...", error_pattern[:50]
         )
+        return True
+
+    @staticmethod
+    def _token_similarity(a: str, b: str) -> float:
+        """Jaccard-like token overlap between two strings."""
+        tokens_a = set(a.lower().split())
+        tokens_b = set(b.lower().split())
+        if not tokens_a or not tokens_b:
+            return 0.0
+        intersection = tokens_a & tokens_b
+        union = tokens_a | tokens_b
+        return len(intersection) / len(union)
 
     def list_antibodies(self, limit: int = 50) -> list[dict]:
         """List stored antibodies with metadata."""

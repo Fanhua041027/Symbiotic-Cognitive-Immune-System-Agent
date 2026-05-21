@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  immune-agent:
+    build: .
+    container_name: symbiotic-immune-agent
+    env_file:
+      - .env
+    volumes:
+      - ./.immune_db:/app/.immune_db
+      - ./logs:/app/logs
+      - ./escalations:/app/escalations
+    command: python immune_agent.py
+
+  # Interactive mode with TTY
+  immune-agent-interactive:
+    build: .
+    container_name: symbiotic-immune-agent-interactive
+    env_file:
+      - .env
+    volumes:
+      - ./.immune_db:/app/.immune_db
+      - ./logs:/app/logs
+      - ./escalations:/app/escalations
+    stdin_open: true
+    tty: true
+    command: python immune_agent.py --interactive

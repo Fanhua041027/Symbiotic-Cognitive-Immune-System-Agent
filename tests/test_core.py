@@ -39,6 +39,18 @@ class TestState:
         assert state["iteration_count"] == 0
         assert state["escalation_report"] is None
 
+    def test_state_iteration_count_increments(self):
+        """State correctly handles iteration count updates."""
+        state: ImmunologyState = {
+            "user_query": "test", "task_steps": [], "anomalies": [],
+            "antibodies": [], "final_output": None,
+            "is_immune_active": False, "validation_status": None,
+            "iteration_count": 0, "escalation_report": None,
+        }
+        assert state["iteration_count"] == 0
+        state["iteration_count"] = 1
+        assert state["iteration_count"] == 1
+
 
 # ---------------------------------------------------------------------------
 # Sandbox validators
@@ -175,6 +187,96 @@ class TestEscalation:
 # ---------------------------------------------------------------------------
 # Logger
 # ---------------------------------------------------------------------------
+class TestASTValidatorExtended:
+    """Extended AST validator tests covering edge cases."""
+
+    def test_nested_dangerous_attribute_call(self):
+        """Detect deeply nested attribute calls like os.path.join(...)"""
+        valid, reason = ASTValidator.validate(
+            "import os\nos.path.join('a', 'b')"
+        )
+        assert not valid
+        assert "dangerous" in reason.lower()
+        assert "os" in reason.lower()
+
+    def test_dunder_method_call(self):
+        """Detect dunder method calls via AST."""
+        valid, reason = ASTValidator.validate('obj.__init__()')
+        assert not valid
+        assert "dunder" in reason.lower()
+
+    def test_safe_getattr_with_dunder_string(self):
+        """getattr with a dunder string arg is NOT a dunder call — should pass."""
+        valid, reason = ASTValidator.validate('getattr(obj, "__init__")')
+        assert valid
+
+    def test_safe_function_with_module_name(self):
+        """A function named 'os' that is actually not os module should be OK."""
+        valid, reason = ASTValidator.validate(
+            'class OS:\n    @staticmethod\n    def system(cmd): pass\nOS.system("ls")'
+        )
+        assert valid
+
+    def test_multiline_complex_code(self):
+        """Valid complex multi-line code should pass."""
+        code = """
+def process(data, max_iter=100):
+    result = []
+    for i in range(max_iter):
+        if data[i] is not None:
+            result.append(data[i] * 2)
+        if len(result) >= 10:
+            break
+    return sorted(result)
+"""
+        valid, reason = ASTValidator.validate(code)
+        assert valid, f"Expected valid, got: {reason}"
+
+
+class TestValidateAntibodyExtended:
+    """Extended antibody validation tests."""
+
+    @patch("core.sandbox.SANDBOX_MODE", "simulated")
+    def test_simulated_empty(self):
+        from core.sandbox import validate_antibody
+        valid, _ = validate_antibody("")
+        assert not valid
+
+    @patch("core.sandbox.SANDBOX_MODE", "simulated")
+    def test_simulated_code_with_guard(self):
+        from core.sandbox import validate_antibody
+        code = "if counter > max_iterations: break"
+        valid, _ = validate_antibody(code)
+        assert valid
+
+    @patch("core.sandbox.SANDBOX_MODE", "ast")
+    def test_ast_mode_nested_danger(self):
+        from core.sandbox import validate_antibody
+        valid, reason = validate_antibody("import subprocess\nsubprocess.call(['ls'])")
+        assert not valid
+
+
+class TestConfig:
+    """Tests for configuration validation."""
+
+    def test_config_basic_get(self):
+        from core.config import get
+        val = get("MAX_ITERATIONS", 5)
+        assert isinstance(val, int)
+
+    def test_config_sandbox_modes_valid(self):
+        from core.config import VALID_SANDBOX_MODES
+        assert "simulated" in VALID_SANDBOX_MODES
+        assert "ast" in VALID_SANDBOX_MODES
+        assert "docker" in VALID_SANDBOX_MODES
+
+    def test_config_providers_valid(self):
+        from core.config import VALID_PROVIDERS
+        assert "openai" in VALID_PROVIDERS
+        assert "deepseek" in VALID_PROVIDERS
+        assert "custom" in VALID_PROVIDERS
+
+
 class TestLogger:
     def test_logger_creation(self):
         from core.logger import setup_logger

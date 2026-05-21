@@ -42,14 +42,12 @@ def validate_simulated(code: str) -> bool:
 class ASTValidator:
     """Validate generated Python code by parsing its AST."""
 
-    DANGEROUS_NODES = (
-        ast.Call,       # Arbitrary function calls may be unsafe
-    )
-
     SUSPICIOUS_MODULES = {
-        "os", "subprocess", "shutil", "sys", "eval", "exec",
+        "os", "subprocess", "shutil", "sys",
         "__import__", "compile", "open", "globals", "locals",
     }
+
+    DANGEROUS_BUILTINS = {"exec", "eval"}
 
     @classmethod
     def validate(cls, code: str) -> tuple[bool, str]:
@@ -65,20 +63,32 @@ class ASTValidator:
         except SyntaxError as e:
             return False, f"Syntax error: {e}"
 
-        # Check for dangerous patterns
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
-                func_name = cls._get_func_name(node.func)
-                if func_name in cls.SUSPICIOUS_MODULES:
-                    return False, f"Dangerous function call: {func_name}"
-                if func_name and func_name.startswith("__"):
-                    return False, f"Dunder method call: {func_name}"
+                func = node.func
+                # Direct call: dangerous_name(...)
+                if isinstance(func, ast.Name):
+                    if func.id in cls.SUSPICIOUS_MODULES:
+                        return False, f"Dangerous function call: {func.id}"
+                    if func.id in cls.DANGEROUS_BUILTINS:
+                        return False, f"Dangerous builtin: {func.id}"
+                # Attribute call: dangerous_module.dangerous_func(...)
+                if isinstance(func, ast.Attribute):
+                    # Walk attribute chain to find the root module name
+                    # e.g. os.path.join -> os is the root
+                    root = func
+                    while isinstance(root, ast.Attribute):
+                        root = root.value
+                    if isinstance(root, ast.Name) and root.id in cls.SUSPICIOUS_MODULES:
+                        return False, (
+                            f"Dangerous function call from module: {root.id}"
+                        )
+                    if func.attr.startswith("__"):
+                        return False, f"Dunder method call: {func.attr}"
 
-            # Check for exec/eval
-            if isinstance(node, ast.Expr):
-                if isinstance(node.value, (ast.Call, ast.Name)):
-                    if getattr(node.value, "id", "") in ("exec", "eval"):
-                        return False, f"Dangerous builtin: {node.value.id}"
+            # Detect ast.Call-free exec/eval (e.g. via Name node)
+            if isinstance(node, ast.Name) and node.id in cls.DANGEROUS_BUILTINS:
+                return False, f"Dangerous builtin: {node.id}"
 
         return True, ""
 

@@ -17,8 +17,7 @@ def generate_mermaid() -> str:
     Monitor -->|no output yet| Worker
 
     Antibody --> Validator[Sandbox Validator]
-    Validator -->|passed| Worker
-    Validator -->|failed| Antibody
+    Validator -->|passed / failed| Worker
 
     Worker -.->|max iterations| Escalation[Human Escalation]
     Escalation -.-> END

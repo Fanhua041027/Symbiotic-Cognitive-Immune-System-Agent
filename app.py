@@ -180,6 +180,13 @@ with tab_query:
             else:
                 st.warning("No output produced.")
 
+            # Execution Trace
+            trace = result.get("workflow_trace", [])
+            if trace:
+                st.subheader("Execution Trace")
+                trace_html = _render_trace(trace)
+                st.markdown(trace_html, unsafe_allow_html=True)
+
             # Error
             error = result.get("error")
             if error:
@@ -414,6 +421,38 @@ with tab_benchmark:
 
         st.subheader("Results by Test Case")
         st.table(results)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+TRACE_STYLES = {
+    "enter:worker": ("Worker", "#FF9800"),
+    "enter:monitor": ("Monitor T-Cell", "#9C27B0"),
+    "enter:generate_antibody": ("Antibody Generator", "#00BCD4"),
+    "enter:validate_antibody": ("Sandbox Validator", "#607D8B"),
+    "route:end": ("End", "#2196F3"),
+    "route:continue": ("Continue (retry)", "#4CAF50"),
+    "route:immune_response": ("Immune Response", "#f44336"),
+}
+
+
+def _render_trace(trace: list[str]) -> str:
+    """Render workflow trace as an HTML flow diagram."""
+    arrows = []
+    for entry in trace:
+        label, color = TRACE_STYLES.get(entry, (entry, "#666"))
+        arrows.append(
+            f'<span style="background:{color};color:#fff;padding:2px 10px;'
+            f'border-radius:12px;font-size:0.85em;white-space:nowrap">{label}</span>'
+        )
+    arrow_html = (
+        '<span style="color:#999;padding:0 4px;font-size:1.2em">→</span>'
+    ).join(arrows)
+    return (
+        f'<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;'
+        f'padding:8px 0">{arrow_html}</div>'
+    )
+
 
 # ===== Tab 4: Metrics =====
 with tab_metrics:

@@ -71,6 +71,7 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
         "validation_status": None,
         "iteration_count": 0,
         "escalation_report": None,
+        "workflow_trace": [],
     }
 
     class TimeoutError_(Exception):

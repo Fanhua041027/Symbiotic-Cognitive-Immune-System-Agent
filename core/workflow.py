@@ -27,6 +27,40 @@ logger = setup_logger("workflow")
 MAX_ITERATIONS = cfg("MAX_ITERATIONS", 5)
 
 
+# ---------------------------------------------------------------------------
+# 执行轨迹装饰器 - 自动为每个节点注入 trace 信息
+# ---------------------------------------------------------------------------
+_TRACE_LABELS = {
+    "worker": "Worker",
+    "monitor": "Monitor T-Cell",
+    "generate_antibody": "Antibody Generator",
+    "validate_antibody": "Sandbox Validator",
+}
+
+
+def _with_trace(node_name: str, func):
+    """Wrap a node function to inject workflow trace."""
+    label = _TRACE_LABELS.get(node_name, node_name)
+
+    def wrapped(state: ImmunologyState) -> dict:
+        trace = list(state.get("workflow_trace") or [])
+        trace.append(f"enter:{node_name}")
+        state["workflow_trace"] = trace
+        logger.debug("Trace: entering %s (iter=%d)", label, state.get("iteration_count", 0))
+
+        result = func(state)
+
+        # Ensure trace is preserved even if node function didn't return it
+        if isinstance(result, dict) and "workflow_trace" not in result:
+            result["workflow_trace"] = list(state.get("workflow_trace") or [])
+        return result
+
+    return wrapped
+
+
+# ---------------------------------------------------------------------------
+# 条件路由 (with trace injection)
+# ---------------------------------------------------------------------------
 def should_continue(state: ImmunologyState) -> Route:
     """
     路由决策：根据当前状态决定下一步走向。
@@ -42,6 +76,7 @@ def should_continue(state: ImmunologyState) -> Route:
     has_output = state.get("final_output") is not None
     iteration = state.get("iteration_count") or 0
 
+    decision: Route
     if iteration >= MAX_ITERATIONS:
         logger.warning("Max iterations (%d) reached, forcing end.", MAX_ITERATIONS)
         if has_anomalies:
@@ -55,16 +90,23 @@ def should_continue(state: ImmunologyState) -> Route:
             )
             if report_path:
                 state["escalation_report"] = report_path
-        return "end"
-    if has_anomalies:
-        return "immune_response"
+        decision = "end"
+    elif has_anomalies:
+        decision = "immune_response"
     elif has_output:
-        # 如果之前产生过抗体（免疫系统曾介入），记录恢复成功
         if state.get("antibodies"):
             escalation.record_success()
-        return "end"
+        decision = "end"
     else:
-        return "continue"
+        decision = "continue"
+
+    # Record routing decision in trace
+    trace = list(state.get("workflow_trace") or [])
+    trace.append(f"route:{decision}")
+    state["workflow_trace"] = trace
+    logger.debug("Trace: route=%s (iter=%d, anomalies=%d, output=%s)",
+                  decision, iteration, len(anomalies), has_output)
+    return decision
 
 
 def build_workflow() -> StateGraph:
@@ -72,11 +114,11 @@ def build_workflow() -> StateGraph:
 
     workflow = StateGraph(ImmunologyState)
 
-    # 注册节点
-    workflow.add_node("worker", main_worker_node)
-    workflow.add_node("monitor", monitor_node)
-    workflow.add_node("generate_antibody", generate_antibody_node)
-    workflow.add_node("validate_antibody", validate_antibody_node)
+    # 注册节点 (用 trace wrapper 包装)
+    workflow.add_node("worker", _with_trace("worker", main_worker_node))
+    workflow.add_node("monitor", _with_trace("monitor", monitor_node))
+    workflow.add_node("generate_antibody", _with_trace("generate_antibody", generate_antibody_node))
+    workflow.add_node("validate_antibody", _with_trace("validate_antibody", validate_antibody_node))
 
     # 入口 → 主智能体
     workflow.add_edge(START, "worker")

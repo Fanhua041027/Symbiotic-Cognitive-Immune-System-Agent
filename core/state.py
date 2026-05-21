@@ -32,3 +32,6 @@ class ImmunologyState(TypedDict):
 
     # 告警升级报告路径 (当免疫系统无法自主修复时)
     escalation_report: Optional[str]
+
+    # 工作流执行轨迹 (用于可视化)
+    workflow_trace: List[str]

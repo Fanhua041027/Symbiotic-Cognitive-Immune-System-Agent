@@ -11,6 +11,10 @@ from dotenv import load_dotenv
 
 from core.logger import setup_logger
 
+# Project root and .env path
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_FILE = os.path.join(_PROJECT_ROOT, ".env")
+
 load_dotenv()
 
 logger = setup_logger("config")
@@ -117,6 +121,62 @@ def get(key: str, default: Any = None) -> Any:
     if not _validated:
         validate_all()
     return _values.get(key, default)
+
+
+# Config fields that can be safely edited from the UI
+EDITABLE_FIELDS = {
+    "MAIN_LLM_MODEL", "MONITOR_LLM_MODEL", "ANTIBODY_LLM_MODEL",
+    "LLM_TEMPERATURE", "MAX_ITERATIONS", "SANDBOX_MODE",
+    "LOG_LEVEL", "ESCALATION_THRESHOLD", "LLM_PROVIDER",
+}
+
+
+def save_config(updates: dict[str, str]) -> list[str]:
+    """Save config updates to .env file. Returns warnings list."""
+    warnings: list[str] = []
+
+    # Validate editable fields
+    for key in updates:
+        if key not in EDITABLE_FIELDS:
+            warnings.append(f"SKIPPED: {key} is not editable from UI")
+
+    try:
+        # Read existing content
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        else:
+            lines = []
+
+        # Update or add each key
+        updated_keys = set()
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("#") or "=" not in stripped:
+                continue
+            key = stripped.split("=", 1)[0].strip()
+            if key in updates:
+                lines[i] = f"{key}={updates[key]}\n"
+                updated_keys.add(key)
+
+        # Add new keys not found in file
+        for key, value in updates.items():
+            if key not in updated_keys:
+                lines.append(f"{key}={value}\n")
+
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        # Re-validate and refresh cache
+        global _validated
+        _validated = False
+        validate_all()
+
+        logger.info("Config saved to %s (%d keys updated)", CONFIG_FILE, len(updates))
+    except Exception as e:
+        warnings.append(f"ERROR saving config: {e}")
+
+    return warnings
 
 
 def show_summary() -> None:

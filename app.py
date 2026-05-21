@@ -44,23 +44,57 @@ with st.sidebar:
     st.markdown("---")
 
     st.subheader("Configuration")
+
+    # Build provider index
+    providers = ["openai", "deepseek", "custom"]
+    current_provider = cfg("LLM_PROVIDER", "openai")
+    prov_idx = providers.index(current_provider) if current_provider in providers else 0
+
     provider = st.selectbox(
         "LLM Provider",
-        options=["openai", "deepseek", "custom"],
-        index=0,
+        options=providers,
+        index=prov_idx,
         help="Which LLM provider to use. Set API keys in .env",
     )
 
+    sandbox_modes = ["simulated", "ast", "docker"]
+    current_sandbox = cfg("SANDBOX_MODE", "simulated")
+    sb_idx = sandbox_modes.index(current_sandbox) if current_sandbox in sandbox_modes else 0
+
     sandbox_mode = st.selectbox(
         "Sandbox Mode",
-        options=["simulated", "ast", "docker"],
-        index=0,
+        options=sandbox_modes,
+        index=sb_idx,
     )
 
     max_iter = st.slider(
         "Max Iterations",
         min_value=1, max_value=20, value=cfg("MAX_ITERATIONS", 5),
     )
+
+    st.markdown("---")
+    st.subheader("Model Settings")
+    worker_model = st.text_input("Worker Model", value=cfg("MAIN_LLM_MODEL", "gpt-4o"))
+    monitor_model = st.text_input("Monitor Model", value=cfg("MONITOR_LLM_MODEL", "gpt-4o-mini"))
+    temperature = st.slider("Temperature", 0.0, 2.0, value=cfg("LLM_TEMPERATURE", 0.7), step=0.1)
+
+    # Save button
+    save_btn = st.button("Save Config to .env", type="primary", use_container_width=True)
+    if save_btn:
+        from core.config import save_config as _save_cfg
+        updates = {
+            "LLM_PROVIDER": provider,
+            "SANDBOX_MODE": sandbox_mode,
+            "MAX_ITERATIONS": str(max_iter),
+            "MAIN_LLM_MODEL": worker_model,
+            "MONITOR_LLM_MODEL": monitor_model,
+            "LLM_TEMPERATURE": str(temperature),
+        }
+        warnings = _save_cfg(updates)
+        if warnings:
+            for w in warnings:
+                st.warning(w)
+        st.success("Configuration saved! Restart required for some changes.")
 
     st.markdown("---")
     st.subheader("Immune Memory")

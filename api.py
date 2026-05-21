@@ -123,6 +123,25 @@ async def stats():
     }
 
 
+class ConfigUpdate(BaseModel):
+    updates: dict[str, str] = Field(description="Config key-value pairs to update")
+
+
+@app.patch("/config", tags=["System"])
+async def update_config(body: ConfigUpdate):
+    """Update configuration values in .env file."""
+    from core.config import save_config, EDITABLE_FIELDS
+    try:
+        warnings = save_config(body.updates)
+        return {
+            "status": "ok" if not any("ERROR" in w for w in warnings) else "partial",
+            "updated": list(body.updates.keys()),
+            "warnings": warnings,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/memory", tags=["Memory"])
 async def list_memory(limit: int = 50):
     """List stored antibodies with optional limit."""

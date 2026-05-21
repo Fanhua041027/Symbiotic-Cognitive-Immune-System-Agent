@@ -29,13 +29,13 @@ load_dotenv()
 
 logger = setup_logger("cli")
 
-# 启动时校验配置
+# 启动时校验配置（仅在直接执行时退出，import 时只警告）
 config_warnings = validate_all()
 show_summary()
 
 if config_warnings:
     has_critical = any(w.startswith("MISSING: OPENAI_API_KEY") for w in config_warnings)
-    if has_critical:
+    if has_critical and __name__ == "__main__":
         # Only bail for commands that need the API key
         if len(sys.argv) > 1 and sys.argv[1] in ("-s", "--stats", "-g", "--graph"):
             pass  # stats/graph don't need API key

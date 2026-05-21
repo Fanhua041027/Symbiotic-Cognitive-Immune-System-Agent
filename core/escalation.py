@@ -17,7 +17,6 @@ logger = setup_logger("escalation")
 ESCALATION_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "escalations"
 )
-MAX_FAILURES = cfg("ESCALATION_THRESHOLD", 3)
 
 
 class EscalationTracker:
@@ -52,8 +51,9 @@ class EscalationTracker:
             anomaly_reason[:80],
         )
 
-        if self._consecutive_failures >= MAX_FAILURES:
-            return self._generate_report()
+        threshold = cfg("ESCALATION_THRESHOLD", 3)
+        if self._consecutive_failures >= threshold:
+            return self._generate_report(threshold)
         return None
 
     def record_success(self):
@@ -65,7 +65,7 @@ class EscalationTracker:
             )
         self._consecutive_failures = 0
 
-    def _generate_report(self) -> str:
+    def _generate_report(self, threshold: int = 3) -> str:
         """Write an escalation report to disk."""
         os.makedirs(ESCALATION_DIR, exist_ok=True)
         filename = (
@@ -77,8 +77,8 @@ class EscalationTracker:
             "title": "Immune System Escalation Notice",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "consecutive_failures": self._consecutive_failures,
-            "threshold": MAX_FAILURES,
-            "history": self._history[-MAX_FAILURES:],
+            "threshold": threshold,
+            "history": self._history[-threshold:],
             "action_required": (
                 "The immune system has failed to autonomously resolve anomalies "
                 "after multiple attempts. Manual intervention is required."

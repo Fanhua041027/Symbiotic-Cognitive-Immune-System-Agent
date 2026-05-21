@@ -24,8 +24,6 @@ Route = Literal["continue", "immune_response", "end"]
 
 logger = setup_logger("workflow")
 
-MAX_ITERATIONS = cfg("MAX_ITERATIONS", 5)
-
 
 # ---------------------------------------------------------------------------
 # 执行轨迹装饰器 - 自动为每个节点注入 trace 信息
@@ -71,14 +69,15 @@ def should_continue(state: ImmunologyState) -> Route:
       - 已有最终输出且健康 → 结束
       - 否则 → 继续执行
     """
+    max_iterations = cfg("MAX_ITERATIONS", 5)
     anomalies = state.get("anomalies", [])
     has_anomalies = bool(anomalies)
     has_output = state.get("final_output") is not None
     iteration = state.get("iteration_count") or 0
 
     decision: Route
-    if iteration >= MAX_ITERATIONS:
-        logger.warning("Max iterations (%d) reached, forcing end.", MAX_ITERATIONS)
+    if iteration >= max_iterations:
+        logger.warning("Max iterations (%d) reached, forcing end.", max_iterations)
         if has_anomalies:
             report_path = escalation.record_failure(
                 query=state.get("user_query", ""),
@@ -90,6 +89,8 @@ def should_continue(state: ImmunologyState) -> Route:
             )
             if report_path:
                 state["escalation_report"] = report_path
+        elif has_output and state.get("antibodies"):
+            escalation.record_success()
         decision = "end"
     elif has_anomalies:
         decision = "immune_response"
@@ -100,11 +101,7 @@ def should_continue(state: ImmunologyState) -> Route:
     else:
         decision = "continue"
 
-    # Record routing decision in trace
-    trace = list(state.get("workflow_trace") or [])
-    trace.append(f"route:{decision}")
-    state["workflow_trace"] = trace
-    logger.debug("Trace: route=%s (iter=%d, anomalies=%d, output=%s)",
+    logger.debug("Route: %s (iter=%d, anomalies=%d, output=%s)",
                   decision, iteration, len(anomalies), has_output)
     return decision
 

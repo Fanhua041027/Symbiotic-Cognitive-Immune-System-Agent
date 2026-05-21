@@ -255,6 +255,28 @@ st.markdown("""
 if "query_history" not in st.session_state:
     st.session_state.query_history = []
 
+# Must be defined before tabs that call it
+TRACE_STYLES = {
+    "enter:worker": ("Worker", "#1a73e8"),
+    "enter:monitor": ("Monitor", "#7c3aed"),
+    "enter:generate_antibody": ("Antibody Gen", "#0d9488"),
+    "enter:validate_antibody": ("Validator", "#6b7280"),
+}
+
+
+def _render_trace(trace: list[str]) -> str:
+    tags = []
+    for entry in trace:
+        label, color = TRACE_STYLES.get(entry, (entry, "#6b7280"))
+        tags.append(
+            f'<span style="background:{color};color:#fff;padding:2px 10px;'
+            f'border-radius:6px;font-size:0.8rem;white-space:nowrap;'
+            f'font-weight:500">{label}</span>'
+        )
+    arrow = '<span style="color:#9ca3af;padding:0 3px;font-size:1rem">→</span>'
+    return f'<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:0.4rem 0">{arrow.join(tags)}</div>'
+
+
 tabs = st.tabs(["Run Query", "History", "Memory", "Workflow", "Benchmark", "Metrics"])
 tq, th, tm, tg, tb, tmet = tabs
 
@@ -529,29 +551,3 @@ with tmet:
             p = mt.save_report(); st.success(f"Saved: {p}")
     with cx2:
         if st.button("Reset", use_container_width=True): st.rerun()
-
-# ---------------------------------------------------------------------------
-# Trace Renderer
-# ---------------------------------------------------------------------------
-TRACE_STYLES = {
-    "enter:worker": ("Worker", "#1a73e8"),
-    "enter:monitor": ("Monitor", "#7c3aed"),
-    "enter:generate_antibody": ("Antibody Gen", "#0d9488"),
-    "enter:validate_antibody": ("Validator", "#6b7280"),
-    "route:end": ("End", "#1a73e8"),
-    "route:continue": ("Continue", "#16a34a"),
-    "route:immune_response": ("Immune Response", "#dc2626"),
-}
-
-
-def _render_trace(trace: list[str]) -> str:
-    tags = []
-    for entry in trace:
-        label, color = TRACE_STYLES.get(entry, (entry, "#6b7280"))
-        tags.append(
-            f'<span style="background:{color};color:#fff;padding:2px 10px;'
-            f'border-radius:6px;font-size:0.8rem;white-space:nowrap;'
-            f'font-weight:500">{label}</span>'
-        )
-    arrow = '<span style="color:#9ca3af;padding:0 3px;font-size:1rem">→</span>'
-    return f'<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:0.4rem 0">{arrow.join(tags)}</div>'

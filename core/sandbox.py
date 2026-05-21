@@ -19,8 +19,6 @@ from core.config import get as cfg
 
 logger = setup_logger("sandbox")
 
-SANDBOX_MODE = cfg("SANDBOX_MODE", "simulated").lower()
-
 
 # ---------------------------------------------------------------------------
 # Level 1: Simulated (heuristic keyword check)
@@ -174,11 +172,12 @@ def validate_antibody(code: str) -> tuple[bool, str]:
     if not code or not code.strip():
         return False, "Empty antibody code"
 
-    logger.info("Validating antibody (mode=%s, len=%d)", SANDBOX_MODE, len(code))
+    mode = cfg("SANDBOX_MODE", "simulated").lower()
+    logger.info("Validating antibody (mode=%s, len=%d)", mode, len(code))
 
-    if SANDBOX_MODE == "docker":
+    if mode == "docker":
         return validate_docker(code)
-    elif SANDBOX_MODE == "ast":
+    elif mode == "ast":
         return validate_ast(code)
     else:
         is_ok = validate_simulated(code)

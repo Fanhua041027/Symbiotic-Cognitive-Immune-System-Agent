@@ -58,6 +58,8 @@ class TestState:
         state["workflow_trace"].append("enter:monitor")
         state["workflow_trace"].append("route:end")
         assert len(state["workflow_trace"]) == 3
+
+    def test_state_iteration_count_tracking(self):
         """State correctly handles iteration count updates."""
         state: ImmunologyState = {
             "user_query": "test", "task_steps": [], "anomalies": [],
@@ -69,6 +71,69 @@ class TestState:
         assert state["iteration_count"] == 0
         state["iteration_count"] = 1
         assert state["iteration_count"] == 1
+
+
+class TestWorkflowRouting:
+    """Tests for should_continue routing decision logic."""
+
+    def _make_state(self, **overrides) -> ImmunologyState:
+        base: ImmunologyState = {
+            "user_query": "test", "task_steps": [], "anomalies": [],
+            "antibodies": [], "final_output": None,
+            "is_immune_active": False, "validation_status": None,
+            "iteration_count": 0, "escalation_report": None,
+            "workflow_trace": [],
+        }
+        base.update(overrides)
+        return base
+
+    @patch("core.workflow.cfg")
+    def test_healthy_path_ends(self, mock_cfg):
+        """No anomalies + has output → end."""
+        mock_cfg.return_value = 5
+        from core.workflow import should_continue
+        state = self._make_state(final_output="result")
+        assert should_continue(state) == "end"
+
+    @patch("core.workflow.cfg")
+    def test_anomaly_triggers_immune_response(self, mock_cfg):
+        """Anomalies present → immune_response."""
+        mock_cfg.return_value = 5
+        from core.workflow import should_continue
+        state = self._make_state(
+            anomalies=[{"status": "unhealthy", "reason": "loop risk", "source": "monitor"}],
+        )
+        assert should_continue(state) == "immune_response"
+
+    @patch("core.workflow.cfg")
+    def test_continue_when_no_output_no_anomalies(self, mock_cfg):
+        """No anomalies, no output → continue."""
+        mock_cfg.return_value = 5
+        from core.workflow import should_continue
+        state = self._make_state()
+        assert should_continue(state) == "continue"
+
+    @patch("core.workflow.cfg")
+    def test_anomaly_takes_priority_over_output(self, mock_cfg):
+        """Even with output, anomalies → immune_response."""
+        mock_cfg.return_value = 5
+        from core.workflow import should_continue
+        state = self._make_state(
+            final_output="some result",
+            anomalies=[{"status": "unhealthy", "reason": "issue", "source": "monitor"}],
+        )
+        assert should_continue(state) == "immune_response"
+
+    @patch("core.workflow.cfg")
+    def test_max_iterations_ends_workflow(self, mock_cfg):
+        """iteration >= max_iterations → end."""
+        mock_cfg.return_value = 3
+        from core.workflow import should_continue
+        state = self._make_state(
+            iteration_count=3,
+            anomalies=[{"status": "unhealthy", "reason": "risk", "source": "monitor"}],
+        )
+        assert should_continue(state) == "end"
 
 
 # ---------------------------------------------------------------------------
@@ -140,20 +205,23 @@ def safe_function():
 
 
 class TestValidateAntibody:
-    @patch("core.sandbox.SANDBOX_MODE", "simulated")
-    def test_simulated_mode(self):
+    @patch("core.sandbox.cfg")
+    def test_simulated_mode(self, mock_cfg):
+        mock_cfg.return_value = "simulated"
         from core.sandbox import validate_antibody
         valid, _ = validate_antibody("def fix():\n    return True")
         assert valid
 
-    @patch("core.sandbox.SANDBOX_MODE", "ast")
-    def test_ast_mode_valid(self):
+    @patch("core.sandbox.cfg")
+    def test_ast_mode_valid(self, mock_cfg):
+        mock_cfg.return_value = "ast"
         from core.sandbox import validate_antibody
         valid, _ = validate_antibody("x = 1")
         assert valid
 
-    @patch("core.sandbox.SANDBOX_MODE", "ast")
-    def test_ast_mode_invalid(self):
+    @patch("core.sandbox.cfg")
+    def test_ast_mode_invalid(self, mock_cfg):
+        mock_cfg.return_value = "ast"
         from core.sandbox import validate_antibody
         valid, reason = validate_antibody("import os\nos.exit(1)")
         assert not valid
@@ -176,13 +244,14 @@ class TestEscalation:
         result = tracker.record_failure("q3", "err", 1)
         assert result is None  # Only 1 consecutive after reset
 
-    def test_escalation_after_threshold(self, tmp_path):
+    @patch("core.escalation.cfg")
+    def test_escalation_after_threshold(self, mock_cfg, tmp_path):
+        mock_cfg.return_value = 2  # Lower threshold for test
         tracker = EscalationTracker()
         # Override the global ESCALATION_DIR for test
         import core.escalation as esc
         original_dir = esc.ESCALATION_DIR
         esc.ESCALATION_DIR = str(tmp_path)
-        esc.MAX_FAILURES = 2  # Lower threshold for test
 
         tracker.record_failure("q1", "err1", 1)
         result = tracker.record_failure("q2", "err2", 1)
@@ -255,21 +324,24 @@ def process(data, max_iter=100):
 class TestValidateAntibodyExtended:
     """Extended antibody validation tests."""
 
-    @patch("core.sandbox.SANDBOX_MODE", "simulated")
-    def test_simulated_empty(self):
+    @patch("core.sandbox.cfg")
+    def test_simulated_empty(self, mock_cfg):
+        mock_cfg.return_value = "simulated"
         from core.sandbox import validate_antibody
         valid, _ = validate_antibody("")
         assert not valid
 
-    @patch("core.sandbox.SANDBOX_MODE", "simulated")
-    def test_simulated_code_with_guard(self):
+    @patch("core.sandbox.cfg")
+    def test_simulated_code_with_guard(self, mock_cfg):
+        mock_cfg.return_value = "simulated"
         from core.sandbox import validate_antibody
         code = "if counter > max_iterations: break"
         valid, _ = validate_antibody(code)
         assert valid
 
-    @patch("core.sandbox.SANDBOX_MODE", "ast")
-    def test_ast_mode_nested_danger(self):
+    @patch("core.sandbox.cfg")
+    def test_ast_mode_nested_danger(self, mock_cfg):
+        mock_cfg.return_value = "ast"
         from core.sandbox import validate_antibody
         valid, reason = validate_antibody("import subprocess\nsubprocess.call(['ls'])")
         assert not valid

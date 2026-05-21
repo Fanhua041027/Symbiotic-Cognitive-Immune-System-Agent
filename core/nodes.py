@@ -143,23 +143,6 @@ def _auto_git_backup(error_pattern: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 执行轨迹辅助
-# ---------------------------------------------------------------------------
-def _append_trace(state: ImmunologyState, entry: str) -> list[str]:
-    trace = list(state.get("workflow_trace") or [])
-    trace.append(entry)
-    return trace
-
-
-def _build_result(state: ImmunologyState, **kwargs) -> dict:
-    """Merge given kwargs into a result dict, preserving workflow_trace."""
-    result = dict(kwargs)
-    if "workflow_trace" not in result:
-        result["workflow_trace"] = list(state.get("workflow_trace") or [])
-    return result
-
-
-# ---------------------------------------------------------------------------
 # 节点 A: 主智能体 (Worker)
 # ---------------------------------------------------------------------------
 def main_worker_node(state: ImmunologyState) -> dict:
@@ -230,7 +213,6 @@ Analyze your own reasoning for these defect patterns:
                 "source": "worker",
             }],
             "final_output": None,
-            "is_immune_active": False,
             "iteration_count": iteration,
         }
 
@@ -255,7 +237,6 @@ Analyze your own reasoning for these defect patterns:
                 }
             ],
             "final_output": None,
-            "is_immune_active": False,
             "iteration_count": iteration,
         }
 
@@ -263,7 +244,6 @@ Analyze your own reasoning for these defect patterns:
         "task_steps": [{"step": "execute", "content": content}],
         "final_output": content,
         "anomalies": [],  # 不覆盖已有异常，在 monitor 中决定
-        "is_immune_active": False,
         "iteration_count": iteration,
     }
 

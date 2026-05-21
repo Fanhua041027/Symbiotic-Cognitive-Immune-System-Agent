@@ -59,19 +59,26 @@
                                       │
                             [Antibody 生成器]
                                       │
-                            [Sandbox 验证器]
+                            [Sandbox 验证器] ← (simulated / ast / docker)
                                       │
                               ┌───────┘
                               ▼
                        重新执行（携带抗体）
+
+失败 ≥3 次 → [人类告警升级] → 生成 JSON 报告
 ```
 
-## 智能体分工
+## 核心特性
 
-- **Worker 主智能体** — 执行用户任务，自检认知异常
-- **Monitor T 细胞** 🛡️ — 分析执行步骤，检测死循环/逻辑矛盾
-- **Antibody 生成器** 💉 — 针对异常自动生成修复补丁
-- **Sandbox 验证器** ✅ — 验证抗体有效性，存入免疫记忆库
+| 特性 | 说明 |
+|------|------|
+| **自诊断** | Worker 自检 + Monitor T 细胞双重异常检测 |
+| **自修复** | LLM 驱动抗体生成，自动产生修复补丁 |
+| **多级沙箱** | simulated（启发式）/ ast（静态分析）/ docker（容器执行） |
+| **持久记忆** | ChromaDB 持久化存储，跨会话复用抗体 |
+| **告警升级** | 连续失败 ≥N 次自动生成人类可读的 JSON 报告 |
+| **对抗测试** | 内置 8 个对抗测试用例，量化免疫系统效能 |
+| **容器化** | Docker / docker-compose 一键部署 |
 
 ## 快速开始
 
@@ -79,6 +86,7 @@
 
 ```bash
 pip install -r requirements.txt
+pip install pytest   # 运行测试
 ```
 
 ### 2. 配置 API Key
@@ -95,34 +103,108 @@ cp .env.example .env
 python immune_agent.py
 
 # 自定义查询
-python immune_agent.py --query "写一段可能有死循环的代码"
+python immune_agent.py --query "Write a function with an infinite loop"
 
 # 交互模式
 python immune_agent.py --interactive
 ```
 
+### 4. 运行测试
+
+```bash
+# 单元测试（无需 API Key）
+python -m pytest tests/ -v --tb=short
+
+# 对抗性测试基准（需要 API Key）
+python tests/adversarial.py
+```
+
+### 5. Docker 部署
+
+```bash
+docker compose build
+docker compose run --rm immune-agent
+```
+
 ## 项目结构
 
 ```
-├── immune_agent.py          # 主入口 / CLI
-├── core/
-│   ├── __init__.py           # 包标记
-│   ├── state.py              # ImmunologyState 状态定义
-│   ├── memory.py             # ChromaDB 持久化免疫记忆
-│   ├── nodes.py              # 四个核心智能体节点
-│   └── workflow.py           # LangGraph 工作流图
+├── immune_agent.py              # 主入口 / CLI
+├── Makefile                     # 常用命令快捷方式
+├── Dockerfile                   # Docker 构建文件
+├── docker-compose.yml           # Docker 编排
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
-└── README.md
+├── README.md
+│
+├── core/
+│   ├── __init__.py
+│   ├── logger.py                # 结构化日志（控制台 + 文件滚动）
+│   ├── state.py                 # ImmunologyState 状态定义
+│   ├── memory.py                # ChromaDB 持久化免疫记忆
+│   ├── nodes.py                 # 四个核心智能体节点
+│   ├── workflow.py              # LangGraph 工作流图
+│   ├── sandbox.py               # 多级沙箱验证（simulated/ast/docker）
+│   └── escalation.py            # 人类告警升级系统
+│
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py              # pytest 配置
+│   ├── test_core.py             # 20+ 单元测试
+│   └── adversarial.py           # 对抗性测试基准
+│
+├── logs/                        # 运行日志（自动创建）
+├── .immune_db/                  # ChromaDB 持久化数据（自动创建）
+├── escalations/                 # 告警升级报告（自动创建）
+└── benchmarks/                  # 对抗测试报告（自动创建）
 ```
 
-## 进阶优化方向
+## 配置项
 
-- **真实沙箱**: 集成 E2B 或 Docker 运行不受信任的代码
-- **多模态监测**: 分析日志文件、CPU 使用率等系统指标
-- **人类反馈回路**: 免疫系统连续失败时通知人类专家
-- **对抗训练**: 训练攻击者 Agent 测试免疫系统鲁棒性
+所有配置通过 `.env` 文件设置：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `OPENAI_API_KEY` | — | OpenAI API 密钥 |
+| `MAIN_LLM_MODEL` | `gpt-4o` | Worker 模型 |
+| `MONITOR_LLM_MODEL` | `gpt-4o-mini` | Monitor 模型 |
+| `ANTIBODY_LLM_MODEL` | `gpt-4o` | 抗体生成模型 |
+| `LLM_TEMPERATURE` | `0.7` | LLM 温度参数 |
+| `MAX_ITERATIONS` | `5` | 最大免疫迭代次数 |
+| `SANDBOX_MODE` | `simulated` | 沙箱模式: simulated / ast / docker |
+| `LOG_LEVEL` | `INFO` | 日志级别: DEBUG / INFO / WARNING / ERROR |
+| `ESCALATION_THRESHOLD` | `3` | 连续失败告警阈值 |
+
+## 对抗测试
+
+```bash
+python tests/adversarial.py
+```
+
+内置 8 个对抗测试用例，覆盖：
+- 无限循环陷阱
+- 逻辑矛盾
+- 自指悖论
+- 模糊需求
+
+每条用例独立运行，系统会统计：
+- 异常检测率
+- 抗体生成率
+- 免疫恢复率
+- 人类告警次数
+
+## Docker 沙箱模式
+
+启用 Docker 沙箱可获得真实代码执行验证：
+
+```bash
+# 1. 确保 Docker 已安装并运行
+# 2. 设置环境变量
+echo "SANDBOX_MODE=docker" >> .env
+# 3. 运行（自动拉取 python:3.11-alpine）
+python immune_agent.py
+```
 
 ## 许可证
 

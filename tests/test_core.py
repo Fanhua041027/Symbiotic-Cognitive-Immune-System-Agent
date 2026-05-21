@@ -557,7 +557,7 @@ class TestConfigSave:
             content = test_path.read_text(encoding="utf-8")
             assert "LLM_PROVIDER=openai" in content
             assert "MAX_ITERATIONS=5" in content
-            assert len(warnings) == 0
+            assert not any("SKIPPED" in w for w in warnings)
         finally:
             cfg_mod.CONFIG_FILE = original_path
 
@@ -574,7 +574,7 @@ class TestConfigSave:
             content = test_path.read_text(encoding="utf-8")
             assert "MAX_ITERATIONS=10" in content
             assert "LLM_PROVIDER=deepseek" in content  # unchanged
-            assert len(warnings) == 0
+            assert not any("SKIPPED" in w for w in warnings)
         finally:
             cfg_mod.CONFIG_FILE = original_path
 
@@ -855,3 +855,60 @@ class TestViz:
         graph = generate_mermaid()
         for node in ("Worker", "Monitor", "Antibody", "Validator"):
             assert node in graph, f"Missing node {node} in mermaid graph"
+
+
+class TestLogger:
+    """Tests for dynamic log level resolution."""
+
+    def test_resolve_log_level_default(self):
+        """Default LOG_LEVEL is INFO."""
+        from core.logger import _resolve_log_level
+        # Remove the env var temporarily to test default
+        original = os.environ.pop("LOG_LEVEL", None)
+        try:
+            assert _resolve_log_level() == "INFO"
+        finally:
+            if original is not None:
+                os.environ["LOG_LEVEL"] = original
+
+    def test_resolve_log_level_from_env(self):
+        """LOG_LEVEL reflects environment at call time."""
+        from core.logger import _resolve_log_level
+        original = os.environ.get("LOG_LEVEL", "")
+        os.environ["LOG_LEVEL"] = "DEBUG"
+        try:
+            assert _resolve_log_level() == "DEBUG"
+        finally:
+            if original:
+                os.environ["LOG_LEVEL"] = original
+            else:
+                del os.environ["LOG_LEVEL"]
+
+    def test_logger_uses_call_time_level(self, monkeypatch):
+        """setup_logger should read LOG_LEVEL at call time, not import time."""
+        import logging
+        from core.logger import setup_logger
+        monkeypatch.setenv("LOG_LEVEL", "ERROR")
+        logger = setup_logger("test_dynamic_level")
+        assert logger.level == logging.ERROR
+
+
+class TestConfigValidateAllWarnings:
+    """Tests that validate_all warnings are surfaced by save_config."""
+
+    def test_save_config_captures_validation_warnings(self, tmp_path):
+        """save_config should return validation warnings from validate_all."""
+        import core.config as cfg_mod
+        original_path = cfg_mod.CONFIG_FILE
+        test_path = tmp_path / ".env_warn"
+        cfg_mod.CONFIG_FILE = str(test_path)
+
+        try:
+            # Save with a provider that requires additional keys
+            warnings = cfg_mod.save_config({"LLM_PROVIDER": "deepseek"})
+            # Should contain warnings about missing DEEPSEEK_API_KEY
+            assert any("MISSING" in w for w in warnings), (
+                f"Expected MISSING warning, got: {warnings}"
+            )
+        finally:
+            cfg_mod.CONFIG_FILE = original_path

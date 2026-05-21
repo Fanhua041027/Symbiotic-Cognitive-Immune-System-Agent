@@ -173,10 +173,10 @@ def save_config(updates: dict[str, str]) -> list[str]:
         for key, value in updates.items():
             os.environ[key] = str(value)
 
-        # Re-validate and refresh cache
+        # Re-validate and refresh cache, capturing warnings
         global _validated
         _validated = False
-        validate_all()
+        warnings.extend(validate_all())
 
         logger.info("Config saved to %s (%d keys updated)", CONFIG_FILE, len(updates))
     except Exception as e:

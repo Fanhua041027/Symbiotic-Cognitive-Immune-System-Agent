@@ -6,20 +6,27 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+
+def _resolve_log_level() -> str:
+    """Read LOG_LEVEL at call time so config changes take effect without restart."""
+    return os.getenv("LOG_LEVEL", "INFO").upper()
 
 
 def setup_logger(name: str) -> logging.Logger:
     """Set up a logger with consistent formatting."""
     os.makedirs(LOG_DIR, exist_ok=True)
 
+    level_name = _resolve_log_level()
+    level = getattr(logging, level_name, logging.INFO)
+
     logger = logging.getLogger(name)
-    logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    logger.setLevel(level)
     logger.handlers.clear()
 
     # Console handler
     console = logging.StreamHandler(sys.stdout)
-    console.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    console.setLevel(level)
     console.setFormatter(logging.Formatter(
         "[%(name)s] %(levelname)s %(message)s",
     ))

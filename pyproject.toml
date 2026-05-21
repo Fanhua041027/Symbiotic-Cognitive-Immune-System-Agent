@@ -4,18 +4,20 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "symbiotic-immune-agent"
-version = "1.0.0"
+version = "1.1.0"
 description = "Bio-inspired multi-agent defense framework with self-diagnosis, self-healing, and self-evolution capabilities"
 requires-python = ">=3.10"
 dependencies = [
     "langgraph>=0.4.0",
     "langchain-openai>=0.3.0",
-    "chromadb>=0.6.0",
     "python-dotenv>=1.1.0",
 ]
 
 [project.optional-dependencies]
+memory = ["chromadb>=0.6.0"]
+webui = ["streamlit>=1.30.0"]
 dev = ["pytest>=8.0", "pre-commit>=3.0", "ruff>=0.4"]
+all = ["chromadb>=0.6.0", "streamlit>=1.30.0", "pytest>=8.0", "pre-commit>=3.0", "ruff>=0.4"]
 
 [project.urls]
 Repository = "https://github.com/Fanhua041027/Symbiotic-Cognitive-Immune-System-Agent"

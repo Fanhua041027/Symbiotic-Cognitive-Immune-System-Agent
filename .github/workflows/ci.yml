@@ -24,7 +24,9 @@ jobs:
           python -m py_compile core/escalation.py
           python -m py_compile core/nodes.py
           python -m py_compile core/workflow.py
+          python -m py_compile core/viz.py
           python -m py_compile immune_agent.py
+          python -c "import ast; ast.parse(open('app.py', encoding='utf-8').read()); print('app.py AST OK')"
       - name: Check imports (structural)
         run: |
           python -c "
@@ -45,7 +47,7 @@ jobs:
       - name: Install deps
         run: |
           pip install -r requirements.txt
-          pip install pytest pytest-mock
+          pip install pytest pytest-mock chromadb
       - name: Run unit tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -65,5 +67,7 @@ jobs:
             from core.state import ImmunologyState
             from core.logger import setup_logger
             from core.config import validate_all
+            from core.memory import memory_db
+            print(f'Immune memory: {memory_db.count()} antibodies')
             print('Container OK')
           "

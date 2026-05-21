@@ -1,4 +1,15 @@
+# Core dependencies
 langgraph>=0.4.0
 langchain-openai>=0.3.0
-chromadb>=0.6.0
 python-dotenv>=1.1.0
+
+# Optional: persistent immune memory (falls back to in-memory)
+# chromadb>=0.6.0
+
+# Optional: Web UI
+# streamlit>=1.30.0
+
+# Optional: development
+# pytest>=8.0
+# pre-commit>=3.0
+# ruff>=0.4

@@ -1,11 +1,12 @@
-.PHONY: install run demo interactive test adversarial clean lint precommit docker-build docker-run docker-interactive
+.PHONY: install run demo interactive query test adversarial benchmark stats graph webui \
+        lint precommit clean docker-build docker-run docker-interactive
 
 # Install dependencies
 install:
 	pip install -r requirements.txt
 
 install-dev:
-	pip install -r requirements.txt pytest pre-commit ruff mypy
+	pip install -r requirements.txt pytest pre-commit ruff mypy streamlit chromadb
 
 # Run demo
 run demo:
@@ -15,21 +16,33 @@ run demo:
 interactive:
 	python immune_agent.py --interactive
 
-# Custom query
+# Custom query (usage: make query Q="your question")
 query:
 	python immune_agent.py --query "$(Q)"
+
+# System statistics
+stats:
+	python immune_agent.py --stats
+
+# Workflow graph
+graph:
+	python immune_agent.py --graph
+
+# Streamlit Web UI
+webui:
+	streamlit run app.py
 
 # Run tests
 test:
 	python -m pytest tests/ -v --tb=short
 
 # Run adversarial benchmark
-adversarial:
-	python tests/adversarial.py
+adversarial benchmark:
+	python immune_agent.py --benchmark
 
 # Code quality
 lint:
-	python -m py_compile core/*.py immune_agent.py tests/*.py
+	python -m py_compile core/*.py immune_agent.py app.py tests/*.py
 	@echo "All files compile OK"
 
 precommit:

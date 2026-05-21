@@ -20,19 +20,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-try:
-    from fastapi import FastAPI, HTTPException
-    from pydantic import BaseModel, Field
-    import uvicorn
-except ImportError:
-    print("fastapi/uvicorn not installed. Run: pip install fastapi uvicorn")
-    sys.exit(1)
-
 from core.logger import setup_logger
 from core.config import get as cfg, validate_all
 from core.metrics import metrics
 
 logger = setup_logger("api")
+
+try:
+    from fastapi import FastAPI, HTTPException
+    from pydantic import BaseModel, Field
+except ImportError:
+    print("fastapi/uvicorn not installed. Run: pip install fastapi uvicorn")
+    # Provide no-op stubs so the module can be imported without crashing
+    def _noop_decorator(*a, **kw): return lambda f: f
+    FastAPI = lambda *a, **kw: type("MockApp", (), {
+        "get": _noop_decorator, "post": _noop_decorator,
+        "patch": _noop_decorator, "delete": _noop_decorator,
+    })()
+    HTTPException = type("HTTPException", (Exception,), {})
+    BaseModel = type("BaseModel", (), {"__init__": lambda s, **kw: None})
+    Field = lambda default=None, **kw: default
 
 app = FastAPI(
     title="Symbiotic Cognitive Immune System Agent API",
@@ -246,6 +253,11 @@ def _memory_stats() -> dict:
 # Main
 # ---------------------------------------------------------------------------
 def main():
+    try:
+        import uvicorn
+    except ImportError:
+        logger.error("uvicorn not installed. Run: pip install uvicorn")
+        sys.exit(1)
     port = int(os.getenv("API_PORT", "8000"))
     host = os.getenv("API_HOST", "0.0.0.0")
     logger.info("Starting API server on %s:%s", host, port)

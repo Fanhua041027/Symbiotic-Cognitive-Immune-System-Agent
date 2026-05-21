@@ -34,16 +34,28 @@ antibody_llm = ChatOpenAI(model=ANTIBODY_MODEL, temperature=0.2)
 def main_worker_node(state: ImmunologyState) -> dict:
     """
     主智能体：尝试完成用户任务。
-    如果检测到潜在的死循环或逻辑矛盾，主动触发免疫响应。
+    执行前先查询免疫记忆库，注入历史抗体；同时注入当前会话抗体。
     """
     query = state["user_query"]
 
-    # 如果有历史抗体，注入上下文
+    # 查询免疫记忆库，获取历史抗体
+    memory_hit = memory_db.search_antibody(query)
     injected_context = ""
-    if state["antibodies"]:
+
+    if memory_hit:
+        logger.info(
+            "Historical antibody found for pattern: %s...",
+            memory_hit.get("pattern", "")[:50],
+        )
+        injected_context += (
+            f"\n[Historical Memory]: {memory_hit['code']}\n"
+        )
+
+    # 注入当前会话的抗体
+    if state.get("antibodies"):
         last_antibody = state["antibodies"][-1]
-        injected_context = (
-            f"\n[Previous Fix Applied]: {last_antibody['code']}\n"
+        injected_context += (
+            f"\n[Session Fix Applied]: {last_antibody['code']}\n"
             f"[Fix Explanation]: {last_antibody['explanation']}\n"
         )
 
@@ -68,8 +80,22 @@ If everything is fine, provide your final answer directly.
     # 自增迭代计数
     iteration = (state.get("iteration_count") or 0) + 1
 
-    response = main_llm.invoke(full_prompt)
-    content = response.content.strip()
+    try:
+        response = main_llm.invoke(full_prompt)
+        content = response.content.strip()
+    except Exception as e:
+        logger.error("Worker LLM call failed: %s", e)
+        return {
+            "task_steps": [{"step": "llm_error", "error": str(e)}],
+            "anomalies": [{
+                "status": "unhealthy",
+                "reason": f"LLM API error in worker: {e}",
+                "source": "worker",
+            }],
+            "final_output": None,
+            "is_immune_active": False,
+            "iteration_count": iteration,
+        }
 
     # 检测 LLM 是否自报告了认知异常
     if content.startswith("COGNITIVE_ANOMALY:"):
@@ -132,8 +158,14 @@ Return ONLY a JSON object with exactly this format:
 - If unhealthy: {{"status": "unhealthy", "reason": "<specific reason>"}}
 """
 
-    response = monitor_llm.invoke(prompt)
-    content = response.content.strip()
+    try:
+        response = monitor_llm.invoke(prompt)
+        content = response.content.strip()
+    except Exception as e:
+        logger.error("Monitor LLM call failed: %s", e)
+        # 默认安全：监察员异常时视为健康
+        existing_anomalies = state.get("anomalies") or []
+        return {"anomalies": existing_anomalies}
 
     # 解析 JSON 响应
     try:
@@ -178,17 +210,24 @@ Requirements:
 3. Return ONLY valid JSON: {{"code": "...", "explanation": "..."}}
 """
 
-    response = antibody_llm.invoke(prompt)
-    content = response.content.strip()
-
     try:
-        cleaned = content.replace("```json", "").replace("```", "").strip()
-        patch = json.loads(cleaned)
-    except json.JSONDecodeError:
+        response = antibody_llm.invoke(prompt)
+        content = response.content.strip()
+    except Exception as e:
+        logger.error("Antibody LLM call failed: %s", e)
         patch = {
-            "code": "# Auto-generated fix: add iteration guard\nmax_iterations = 10",
-            "explanation": "Added maximum iteration limit to prevent infinite loops.",
+            "code": "# Fallback guard: max iteration limit\nMAX_ITER = 100\ncounter = 0\nwhile counter < MAX_ITER:\n    counter += 1",
+            "explanation": "Fallback: added iteration guard after LLM error.",
         }
+    else:
+        try:
+            cleaned = content.replace("```json", "").replace("```", "").strip()
+            patch = json.loads(cleaned)
+        except json.JSONDecodeError:
+            patch = {
+                "code": "# Auto-generated fix: add iteration guard\nmax_iterations = 10",
+                "explanation": "Added maximum iteration limit to prevent infinite loops.",
+            }
 
     new_antibody = {
         "code": patch.get("code", ""),

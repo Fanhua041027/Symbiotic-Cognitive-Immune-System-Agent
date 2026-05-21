@@ -36,18 +36,29 @@ show_summary()
 if config_warnings:
     has_critical = any(w.startswith("MISSING: OPENAI_API_KEY") for w in config_warnings)
     if has_critical:
-        logger.error(
-            "OPENAI_API_KEY is not set. "
-            "Copy .env.example to .env and fill in your API key."
-        )
-        sys.exit(1)
+        # Only bail for commands that need the API key
+        if len(sys.argv) > 1 and sys.argv[1] in ("-s", "--stats", "-g", "--graph"):
+            pass  # stats/graph don't need API key
+        else:
+            logger.error(
+                "OPENAI_API_KEY is not set. "
+                "Copy .env.example to .env and fill in your API key."
+            )
+            sys.exit(1)
 
 
-def run_single_query(query: str) -> dict:
-    """运行单次查询并返回完整结果。"""
+def run_single_query(query: str, timeout: float = 60.0) -> dict:
+    """运行单次查询并返回完整结果。
+
+    Args:
+        query: 用户输入的问题
+        timeout: 超时秒数（默认 60s，超过返回 timeout 错误）
+    """
+    import signal
+
     from core.workflow import app
 
-    config = {"recursion_limit": 20}
+    config = {"recursion_limit": max(20, cfg("MAX_ITERATIONS", 5) * 4)}
     initial_state = {
         "user_query": query,
         "task_steps": [],
@@ -60,12 +71,31 @@ def run_single_query(query: str) -> dict:
         "escalation_report": None,
     }
 
+    class TimeoutError_(Exception):
+        pass
+
+    def _timeout_handler(signum, frame):
+        raise TimeoutError_(f"Query timed out after {timeout}s")
+
+    original_handler = None
+    if hasattr(signal, "SIGALRM"):
+        original_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(int(timeout))
+
     try:
         result = app.invoke(initial_state, config=config)
         return result
+    except TimeoutError_ as e:
+        logger.error("Workflow timed out: %s", e)
+        return {"final_output": None, "error": str(e)}
     except Exception as e:
         logger.error("Workflow interrupted: %s", e)
         return {"final_output": None, "error": str(e)}
+    finally:
+        if hasattr(signal, "SIGALRM"):
+            signal.alarm(0)
+            if original_handler:
+                signal.signal(signal.SIGALRM, original_handler)
 
 
 def run_demo() -> None:
@@ -147,6 +177,40 @@ def run_benchmark() -> None:
     _bench()
 
 
+def show_stats() -> None:
+    """Display immune memory and system statistics."""
+    from core.memory import memory_db
+    from core.config import get as cfg_get
+
+    print("\n" + "=" * 50)
+    print("  Immune System Statistics")
+    print("=" * 50)
+
+    # Immune memory stats
+    try:
+        count = memory_db.count()
+        backend = getattr(memory_db, '_backend', 'unknown')
+        print(f"\n  Immune Memory ({backend}):")
+        print(f"    Stored Antibodies : {count}")
+    except Exception as e:
+        print(f"\n  Immune Memory: error reading ({e})")
+
+    # Config summary
+    print(f"\n  Configuration:")
+    print(f"    Provider       : {cfg_get('LLM_PROVIDER', 'openai')}")
+    print(f"    Worker Model   : {cfg_get('MAIN_LLM_MODEL', 'gpt-4o')}")
+    print(f"    Monitor Model  : {cfg_get('MONITOR_LLM_MODEL', 'gpt-4o-mini')}")
+    print(f"    Sandbox Mode   : {cfg_get('SANDBOX_MODE', 'simulated')}")
+    print(f"    Max Iterations : {cfg_get('MAX_ITERATIONS', 5)}")
+    print(f"    Escalation Thr : {cfg_get('ESCALATION_THRESHOLD', 3)}")
+
+    print(f"\n  Project Info:")
+    print(f"    Path   : {os.path.dirname(os.path.abspath(__file__))}")
+    print(f"    Logs   : {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')}")
+    print(f"    Memory : {os.path.join(os.path.dirname(os.path.abspath(__file__)), '.immune_db')}")
+    print()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Symbiotic Cognitive Immune System Agent",
@@ -158,7 +222,9 @@ def main() -> None:
             "  %(prog)s -i                      Interactive mode\n"
             "  %(prog)s -b                      Run adversarial benchmark\n"
             "  %(prog)s -g                      Show workflow graph\n"
+            "  %(prog)s -s                      Show immune memory stats\n"
             "  %(prog)s -q \"hello\" -j          Output as JSON\n"
+            "  %(prog)s -q \"hello\" -t 30      Query with 30s timeout\n"
         ),
     )
     parser.add_argument(
@@ -186,8 +252,23 @@ def main() -> None:
         action="store_true",
         help="Output result as JSON (use with --query)",
     )
+    parser.add_argument(
+        "--timeout", "-t",
+        type=float,
+        default=60.0,
+        help="Query timeout in seconds (default: 60)",
+    )
+    parser.add_argument(
+        "--stats", "-s",
+        action="store_true",
+        help="Show immune memory statistics",
+    )
 
     args = parser.parse_args()
+
+    if args.stats:
+        show_stats()
+        return
 
     if args.graph:
         from core.viz import print_graph, print_graph_ascii
@@ -200,7 +281,7 @@ def main() -> None:
         return
 
     if args.query:
-        result = run_single_query(args.query)
+        result = run_single_query(args.query, timeout=args.timeout)
         if args.json:
             print(json.dumps(
                 {k: v for k, v in result.items()

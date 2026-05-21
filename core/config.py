@@ -53,7 +53,7 @@ def validate_all() -> list[str]:
 
         if raw is None:
             if required:
-                warnings.append(f"MISSING: {key} ({desc}) — set in .env or environment")
+                warnings.append(f"MISSING: {key} ({desc}) - not set; see .env.example")
             continue
 
         try:
@@ -67,7 +67,7 @@ def validate_all() -> list[str]:
                 _values[key] = raw
         except ValueError:
             warnings.append(
-                f"INVALID: {key}={raw!r} — expected {cast_type.__name__}, using default"
+                f"INVALID: {key}={raw!r} -expected {cast_type.__name__}, using default"
             )
             _values[key] = default
 
@@ -75,14 +75,14 @@ def validate_all() -> list[str]:
     sandbox = _values.get("SANDBOX_MODE", "simulated")
     if sandbox not in VALID_SANDBOX_MODES:
         warnings.append(
-            f"INVALID: SANDBOX_MODE={sandbox!r} — must be one of {VALID_SANDBOX_MODES}"
+            f"INVALID: SANDBOX_MODE={sandbox!r} -must be one of {VALID_SANDBOX_MODES}"
         )
         _values["SANDBOX_MODE"] = "simulated"
 
     log_level = _values.get("LOG_LEVEL", "INFO")
     if log_level not in VALID_LOG_LEVELS:
         warnings.append(
-            f"INVALID: LOG_LEVEL={log_level!r} — must be one of {VALID_LOG_LEVELS}"
+            f"INVALID: LOG_LEVEL={log_level!r} -must be one of {VALID_LOG_LEVELS}"
         )
         _values["LOG_LEVEL"] = "INFO"
 
@@ -90,20 +90,20 @@ def validate_all() -> list[str]:
     provider = _values.get("LLM_PROVIDER", "openai")
     if provider not in VALID_PROVIDERS:
         warnings.append(
-            f"INVALID: LLM_PROVIDER={provider!r} — must be one of {VALID_PROVIDERS}"
+            f"INVALID: LLM_PROVIDER={provider!r} -must be one of {VALID_PROVIDERS}"
         )
         _values["LLM_PROVIDER"] = "openai"
     elif provider == "deepseek" and not _values.get("DEEPSEEK_API_KEY"):
         warnings.append(
-            "MISSING: DEEPSEEK_API_KEY — required when LLM_PROVIDER=deepseek"
+            "MISSING: DEEPSEEK_API_KEY -required when LLM_PROVIDER=deepseek"
         )
     elif provider == "custom" and not _values.get("CUSTOM_API_KEY"):
         warnings.append(
-            "MISSING: CUSTOM_API_KEY — required when LLM_PROVIDER=custom"
+            "MISSING: CUSTOM_API_KEY -required when LLM_PROVIDER=custom"
         )
     elif provider == "custom" and not _values.get("CUSTOM_API_BASE"):
         warnings.append(
-            "MISSING: CUSTOM_API_BASE — required when LLM_PROVIDER=custom"
+            "MISSING: CUSTOM_API_BASE -required when LLM_PROVIDER=custom"
         )
 
     global _validated
@@ -133,4 +133,4 @@ def show_summary() -> None:
 
     if warnings:
         for w in warnings:
-            logger.warning("  ⚠ %s", w)
+            logger.warning("  [!] %s", w)

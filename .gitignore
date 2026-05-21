@@ -221,6 +221,7 @@ __marimo__/
 logs/
 escalations/
 benchmarks/
+metrics/
 .immune_db/
 
 # Stray project files

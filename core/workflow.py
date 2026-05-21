@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 
 load_dotenv()
 
+from core.logger import setup_logger
 from core.state import ImmunologyState
 from core.nodes import (
     main_worker_node,
@@ -20,7 +21,9 @@ from core.nodes import (
 Route = Literal["continue", "immune_response", "end"]
 
 
-MAX_ITERATIONS = 5  # 最大免疫迭代次数，防止无限修复循环
+logger = setup_logger("workflow")
+
+MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "5"))
 
 
 def should_continue(state: ImmunologyState) -> Route:
@@ -39,7 +42,7 @@ def should_continue(state: ImmunologyState) -> Route:
     iteration = state.get("iteration_count") or 0
 
     if iteration >= MAX_ITERATIONS:
-        print(f"[Workflow] Max iterations ({MAX_ITERATIONS}) reached, forcing end.")
+        logger.warning("Max iterations (%d) reached, forcing end.", MAX_ITERATIONS)
         return "end"
     if has_anomalies:
         return "immune_response"

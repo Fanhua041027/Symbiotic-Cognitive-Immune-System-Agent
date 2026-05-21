@@ -22,12 +22,16 @@ import sys
 
 from dotenv import load_dotenv
 
+from core.logger import setup_logger
+
 load_dotenv()
+
+logger = setup_logger("cli")
 
 # 检查 API Key
 if not os.getenv("OPENAI_API_KEY"):
-    print(
-        "[Error] OPENAI_API_KEY is not set. "
+    logger.error(
+        "OPENAI_API_KEY is not set. "
         "Copy .env.example to .env and fill in your API key."
     )
     sys.exit(1)
@@ -53,7 +57,7 @@ def run_single_query(query: str) -> dict:
         result = app.invoke(initial_state, config=config)
         return result
     except Exception as e:
-        print(f"\n[System] Workflow interrupted: {e}")
+        logger.error("Workflow interrupted: %s", e)
         return {"final_output": None, "error": str(e)}
 
 
@@ -70,38 +74,40 @@ and print all keys. Make sure it handles infinite nesting.""",
     ]
 
     for i, query in enumerate(test_queries, 1):
-        print(f"\n{'='*60}")
-        print(f" Test Case {i}")
-        print(f"{'='*60}")
-        print(f"[Query] {query[:80]}...")
-        print(f"{'='*60}")
+        logger.info("=" * 60)
+        logger.info("Test Case %d", i)
+        logger.info("=" * 60)
+        logger.info("[Query] %s...", query[:80])
+        logger.info("=" * 60)
 
         result = run_single_query(query)
 
-        print(f"\n--- Result ---")
-        print(f"Final Output: {str(result.get('final_output', 'N/A'))[:300]}")
-        print(f"Immune Active: {result.get('is_immune_active', False)}")
-        print(f"Validation: {result.get('validation_status', 'N/A')}")
+        logger.info("--- Result ---")
+        logger.info(
+            "Final Output: %s", str(result.get("final_output", "N/A"))[:300]
+        )
+        logger.info("Immune Active: %s", result.get("is_immune_active", False))
+        logger.info("Validation: %s", result.get("validation_status", "N/A"))
 
         antibodies = result.get("antibodies", [])
         if antibodies:
-            print(f"Antibodies Generated: {len(antibodies)}")
+            logger.info("Antibodies Generated: %d", len(antibodies))
             for j, ab in enumerate(antibodies, 1):
-                print(f"  [{j}] {ab.get('explanation', '')[:100]}")
+                logger.info("  [%d] %s", j, ab.get("explanation", "")[:100])
 
         anomalies = result.get("anomalies", [])
         if anomalies:
-            print(f"Anomalies Detected: {len(anomalies)}")
+            logger.info("Anomalies Detected: %d", len(anomalies))
             for j, an in enumerate(anomalies, 1):
-                print(f"  [{j}] {an.get('reason', '')[:100]}")
+                logger.info("  [%d] %s", j, an.get("reason", "")[:100])
 
         print()
 
 
 def run_interactive() -> None:
     """交互式模式：用户持续输入查询。"""
-    print("Symbiotic Cognitive Immune System Agent - Interactive Mode")
-    print("Type 'quit' or 'exit' to stop.\n")
+    logger.info("Symbiotic Cognitive Immune System Agent - Interactive Mode")
+    logger.info("Type 'quit' or 'exit' to stop.\n")
 
     while True:
         try:
@@ -142,7 +148,7 @@ def main() -> None:
         output = result.get("final_output") or json.dumps(
             result.get("error", "No output"), ensure_ascii=False
         )
-        print(output)
+        logger.info(output)
     elif args.interactive:
         run_interactive()
     else:

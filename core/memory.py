@@ -7,9 +7,11 @@ from typing import Optional, Dict
 import chromadb
 from chromadb.config import Settings
 
+from core.logger import setup_logger
 
 # 持久化存储路径
 DB_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".immune_db")
+logger = setup_logger("immune_db")
 
 
 class ImmunologyMemory:
@@ -31,9 +33,8 @@ class ImmunologyMemory:
             ids=[str(uuid.uuid4())],
             metadatas=[{"error_pattern": error_pattern, "code": antibody_code}],
         )
-        print(
-            f"[Immune DB] Stored new antibody for pattern: "
-            f"{error_pattern[:50]}..."
+        logger.info(
+            "Stored new antibody for pattern: %s...", error_pattern[:50]
         )
 
     def search_antibody(self, query: str) -> Optional[Dict[str, str]]:

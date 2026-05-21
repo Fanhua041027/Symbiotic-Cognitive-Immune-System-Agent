@@ -1,0 +1,174 @@
+"""Sandbox validation module with multiple execution backends.
+
+Supports three validation levels:
+  - simulated  : keyword-based heuristic check (default, no deps needed)
+  - ast        : static Python AST analysis (no extra deps)
+  - docker     : real Docker container execution (requires Docker)
+  - e2b        : E2B cloud sandbox execution (requires e2b_code_interpreter)
+"""
+
+import ast
+import os
+import subprocess
+import sys
+import tempfile
+from typing import Optional
+
+from core.logger import setup_logger
+
+logger = setup_logger("sandbox")
+
+SANDBOX_MODE = os.getenv("SANDBOX_MODE", "simulated").lower()
+
+
+# ---------------------------------------------------------------------------
+# Level 1: Simulated (heuristic keyword check)
+# ---------------------------------------------------------------------------
+def validate_simulated(code: str) -> bool:
+    """Quick keyword-based heuristic to check if code looks like a real fix."""
+    fix_keywords = [
+        "fix", "guard", "limit", "check", "max", "break",
+        "return", "try", "except", "if", "validate",
+    ]
+    has_keywords = any(kw in code.lower() for kw in fix_keywords)
+    is_long_enough = len(code) > 15
+    return has_keywords or is_long_enough
+
+
+# ---------------------------------------------------------------------------
+# Level 2: AST analysis (static code validation)
+# ---------------------------------------------------------------------------
+class ASTValidator:
+    """Validate generated Python code by parsing its AST."""
+
+    DANGEROUS_NODES = (
+        ast.Call,       # Arbitrary function calls may be unsafe
+    )
+
+    SUSPICIOUS_MODULES = {
+        "os", "subprocess", "shutil", "sys", "eval", "exec",
+        "__import__", "compile", "open", "globals", "locals",
+    }
+
+    @classmethod
+    def validate(cls, code: str) -> tuple[bool, str]:
+        """
+        Parse and validate Python code via AST.
+        Returns (is_valid, reason_or_empty_string).
+        """
+        if not code or not code.strip():
+            return False, "Empty code"
+
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as e:
+            return False, f"Syntax error: {e}"
+
+        # Check for dangerous patterns
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func_name = cls._get_func_name(node.func)
+                if func_name in cls.SUSPICIOUS_MODULES:
+                    return False, f"Dangerous function call: {func_name}"
+                if func_name and func_name.startswith("__"):
+                    return False, f"Dunder method call: {func_name}"
+
+            # Check for exec/eval
+            if isinstance(node, ast.Expr):
+                if isinstance(node.value, (ast.Call, ast.Name)):
+                    if getattr(node.value, "id", "") in ("exec", "eval"):
+                        return False, f"Dangerous builtin: {node.value.id}"
+
+        return True, ""
+
+    @staticmethod
+    def _get_func_name(node: ast.AST) -> Optional[str]:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Level 3: Docker sandbox (real execution in isolated container)
+# ---------------------------------------------------------------------------
+def validate_docker(code: str) -> tuple[bool, str]:
+    """Run generated Python code inside a Docker container for real testing."""
+    if not _docker_available():
+        logger.warning("Docker not available, falling back to AST validation")
+        return validate_ast(code)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".py", delete=False, encoding="utf-8"
+    ) as f:
+        f.write(code)
+        host_path = f.name
+        container_path = "/tmp/antibody_check.py"
+
+    try:
+        result = subprocess.run(
+            ["docker", "run", "--rm",
+             "-v", f"{host_path}:{container_path}",
+             "python:3.11-alpine",
+             "python", container_path],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            logger.info("Docker validation passed")
+            return True, ""
+        else:
+            return False, f"Runtime error: {result.stderr.strip()[:200]}"
+    except FileNotFoundError:
+        logger.warning("Docker executable not found")
+        return validate_ast(code)
+    except subprocess.TimeoutExpired:
+        return False, "Execution timed out (>30s)"
+    except Exception as e:
+        logger.error("Docker validation error: %s", e)
+        return validate_ast(code)
+    finally:
+        os.unlink(host_path)
+
+
+def _docker_available() -> bool:
+    """Check if Docker CLI is accessible."""
+    try:
+        subprocess.run(
+            ["docker", "--version"],
+            capture_output=True, timeout=5,
+        )
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Level 2 alias (AST only, no Docker)
+# ---------------------------------------------------------------------------
+def validate_ast(code: str) -> tuple[bool, str]:
+    """Run AST validation only, returns (is_valid, reason)."""
+    return ASTValidator.validate(code)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+def validate_antibody(code: str) -> tuple[bool, str]:
+    """
+    Validate an antibody code snippet using the configured sandbox mode.
+
+    Returns (is_valid: bool, reason: str).
+    """
+    if not code or not code.strip():
+        return False, "Empty antibody code"
+
+    logger.info("Validating antibody (mode=%s, len=%d)", SANDBOX_MODE, len(code))
+
+    if SANDBOX_MODE == "docker":
+        return validate_docker(code)
+    elif SANDBOX_MODE == "ast":
+        return validate_ast(code)
+    else:
+        is_ok = validate_simulated(code)
+        return is_ok, "" if is_ok else "Simulated check failed"

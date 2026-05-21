@@ -8,6 +8,10 @@ from langchain_openai import ChatOpenAI
 
 from core.state import ImmunologyState
 from core.memory import memory_db
+from core.logger import setup_logger
+from core.sandbox import validate_antibody
+
+logger = setup_logger("nodes")
 
 load_dotenv()
 
@@ -201,8 +205,8 @@ Requirements:
 # ---------------------------------------------------------------------------
 def validate_antibody_node(state: ImmunologyState) -> dict:
     """
-    沙箱验证：检查生成的抗体是否有效。
-    （生产环境应替换为 Docker / E2B 沙箱执行。）
+    沙箱验证：使用可配置的多级沙箱检查抗体有效性。
+    支持 simulated / ast / docker 三种模式（通过 SANDBOX_MODE 环境变量设置）。
     """
     antibodies = state.get("antibodies", [])
     if not antibodies:
@@ -214,26 +218,27 @@ def validate_antibody_node(state: ImmunologyState) -> dict:
     latest_antibody = antibodies[-1]
     code = latest_antibody.get("code", "")
 
-    # 模拟验证逻辑：抗体包含关键修复模式视为有效
-    has_fix_keywords = any(
-        kw in code.lower()
-        for kw in ["fix", "guard", "limit", "check", "max", "break", "return"]
-    )
-    is_long_enough = len(code) > 15
-    is_valid = has_fix_keywords or is_long_enough
+    is_valid, reason = validate_antibody(code)
 
     if is_valid:
-        # 存入免疫记忆库
+        error_pattern = "cognitive_loop"
+        # 尝试从历史异常中提取更精确的模式
+        anomalies = state.get("anomalies", [])
+        if anomalies:
+            error_pattern = anomalies[-1].get("reason", error_pattern)[:100]
+
         memory_db.store_antibody(
-            error_pattern="cognitive_loop",
+            error_pattern=error_pattern,
             antibody_code=code,
             context=state.get("user_query", ""),
         )
+        logger.info("Antibody validated and stored (mode=%s)", os.getenv("SANDBOX_MODE", "simulated"))
         return {
             "is_immune_active": True,
             "validation_status": "passed",
         }
 
+    logger.warning("Antibody validation failed: %s", reason or "keyword check failed")
     return {
         "is_immune_active": False,
         "validation_status": "failed",

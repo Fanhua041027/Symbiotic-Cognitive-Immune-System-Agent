@@ -42,7 +42,7 @@ class MetricsTracker:
         self._window_size = window_size
         self._records: list[QueryRecord] = []
         self._anomaly_counter: Counter[str] = Counter()
-        self. _session_start = time.time()
+        self._session_start = time.time()
         self._total_duration = 0.0
 
     def record_query(self, result: dict) -> QueryRecord:

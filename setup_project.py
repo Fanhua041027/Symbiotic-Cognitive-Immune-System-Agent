@@ -25,7 +25,7 @@ def print_banner():
 
 
 def step(msg: str):
-    print(f"\n  [{chr(10003) if sys.platform != 'win32' else '*'] {msg}...")
+    print(f"\n  [*] {msg}...")
 
 
 def check_env():

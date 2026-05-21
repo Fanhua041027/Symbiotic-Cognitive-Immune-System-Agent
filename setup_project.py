@@ -49,7 +49,7 @@ def check_env():
 
 def check_dirs():
     """Ensure required directories exist."""
-    for d in ["logs", "escalations", "benchmarks"]:
+    for d in ["logs", "escalations", "benchmarks", "metrics"]:
         (ROOT / d).mkdir(exist_ok=True)
     print(f"  [OK] Directories ready")
 

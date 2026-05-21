@@ -16,8 +16,9 @@ dependencies = [
 [project.optional-dependencies]
 memory = ["chromadb>=0.6.0"]
 webui = ["streamlit>=1.30.0"]
+api = ["fastapi>=0.110.0", "uvicorn>=0.29.0"]
 dev = ["pytest>=8.0", "pre-commit>=3.0", "ruff>=0.4"]
-all = ["chromadb>=0.6.0", "streamlit>=1.30.0", "pytest>=8.0", "pre-commit>=3.0", "ruff>=0.4"]
+all = ["chromadb>=0.6.0", "streamlit>=1.30.0", "fastapi>=0.110.0", "uvicorn>=0.29.0", "pytest>=8.0", "pre-commit>=3.0", "ruff>=0.4"]
 
 [project.urls]
 Repository = "https://github.com/Fanhua041027/Symbiotic-Cognitive-Immune-System-Agent"

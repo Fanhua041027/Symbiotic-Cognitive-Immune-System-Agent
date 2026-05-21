@@ -29,3 +29,6 @@ class ImmunologyState(TypedDict):
 
     # 迭代计数 (防止死循环)
     iteration_count: int
+
+    # 告警升级报告路径 (当免疫系统无法自主修复时)
+    escalation_report: Optional[str]

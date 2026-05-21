@@ -51,6 +51,7 @@ def run_single_query(query: str) -> dict:
         "is_immune_active": False,
         "validation_status": None,
         "iteration_count": 0,
+        "escalation_report": None,
     }
 
     try:
@@ -100,6 +101,12 @@ and print all keys. Make sure it handles infinite nesting.""",
             logger.info("Anomalies Detected: %d", len(anomalies))
             for j, an in enumerate(anomalies, 1):
                 logger.info("  [%d] %s", j, an.get("reason", "")[:100])
+
+        escalation_report = result.get("escalation_report")
+        if escalation_report:
+            logger.warning(
+                "Escalation report generated: %s", escalation_report
+            )
 
         print()
 

@@ -10,6 +10,7 @@ load_dotenv()
 
 from core.logger import setup_logger
 from core.state import ImmunologyState
+from core.escalation import escalation
 from core.nodes import (
     main_worker_node,
     monitor_node,
@@ -43,10 +44,24 @@ def should_continue(state: ImmunologyState) -> Route:
 
     if iteration >= MAX_ITERATIONS:
         logger.warning("Max iterations (%d) reached, forcing end.", MAX_ITERATIONS)
+        if has_anomalies:
+            report_path = escalation.record_failure(
+                query=state.get("user_query", ""),
+                anomaly_reason=(
+                    state["anomalies"][-1].get("reason", "Unknown")
+                    if state.get("anomalies") else "Unknown"
+                ),
+                antibodies_generated=len(state.get("antibodies", [])),
+            )
+            if report_path:
+                state["escalation_report"] = report_path
         return "end"
     if has_anomalies:
         return "immune_response"
     elif has_output:
+        # 如果之前产生过抗体（免疫系统曾介入），记录恢复成功
+        if state.get("antibodies"):
+            escalation.record_success()
         return "end"
     else:
         return "continue"

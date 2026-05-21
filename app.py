@@ -325,9 +325,11 @@ with tq:
     with c2: demo = st.checkbox("Use demo", value=False)
     with c3: show_raw = st.checkbox("Raw JSON", value=False)
     if demo:
-        dqs = ["Write a while loop that never terminates, but claim you fixed it by adding a pass statement.",
-               "Write a function that returns True if a number is both greater than 10 and less than 5.",
-               "Write a recursive function to traverse a nested dictionary and print all keys. Make sure it handles infinite nesting."]
+        try:
+            from tests.adversarial import ADVERSARIAL_QUERIES
+            dqs = list(ADVERSARIAL_QUERIES)
+        except Exception:
+            dqs = ["Write a while loop that never terminates, but claim you fixed it."]
         query = st.selectbox("Select demo:", dqs, label_visibility="collapsed")
     st.markdown('</div>', unsafe_allow_html=True)
 

@@ -39,19 +39,66 @@ class InMemoryStore:
             "Stored antibody (in-memory) for pattern: %s...", error_pattern[:50]
         )
 
+    @staticmethod
+    def _token_score(text: str, query_tokens: set[str]) -> float:
+        text_lower = text.lower()
+        matches = sum(1 for t in query_tokens if t in text_lower)
+        return matches / len(query_tokens) if query_tokens else 0.0
+
     def search_antibody(self, query: str) -> Optional[Dict[str, str]]:
         if not self._antibodies:
             return None
-        # Simple keyword matching fallback
-        query_lower = query.lower()
-        best = None
+
+        # Token overlap scoring across error_pattern, context, and code
+        query_tokens = set(query.lower().split())
+        if not query_tokens:
+            return None
+
+        scored = []
         for ab in self._antibodies:
-            if query_lower in ab["context"].lower() or \
-               query_lower in ab["error_pattern"].lower():
-                best = ab
-        if best:
-            return {"code": best["code"], "pattern": best["error_pattern"]}
-        return None
+            score = max(
+                self._token_score(ab.get("error_pattern", ""), query_tokens),
+                self._token_score(ab.get("context", ""), query_tokens),
+                self._token_score(ab.get("code", ""), query_tokens),
+            )
+            if score > 0:
+                scored.append((score, ab))
+
+        if not scored:
+            return None
+
+        # Return best match
+        scored.sort(key=lambda x: -x[0])
+        best = scored[0][1]
+        logger.debug("In-memory search: best score=%.2f for pattern=%s",
+                      scored[0][0], best.get("error_pattern", "?")[:40])
+        return {"code": best["code"], "pattern": best["error_pattern"]}
+
+    def list_antibodies(self, limit: int = 50) -> list[dict]:
+        return [
+            {
+                "id": str(i),
+                "error_pattern": ab.get("error_pattern", "unknown"),
+                "code": ab.get("code", "")[:200],
+                "context": ab.get("context", "")[:200],
+            }
+            for i, ab in enumerate(self._antibodies)
+        ][:limit]
+
+    def delete_antibody(self, antibody_id: str) -> bool:
+        try:
+            idx = int(antibody_id)
+            if 0 <= idx < len(self._antibodies):
+                del self._antibodies[idx]
+                return True
+        except (ValueError, IndexError):
+            pass
+        return False
+
+    def clear_all(self) -> int:
+        count = len(self._antibodies)
+        self._antibodies.clear()
+        return count
 
     def count(self) -> int:
         return len(self._antibodies)
@@ -115,15 +162,7 @@ class ImmunologyMemory:
                 logger.warning("Failed to list chromadb antibodies: %s", e)
                 return []
         # In-memory fallback
-        return [
-            {
-                "id": str(i),
-                "error_pattern": ab.get("error_pattern", "unknown"),
-                "code": ab.get("code", "")[:200],
-                "context": ab.get("context", "")[:200],
-            }
-            for i, ab in enumerate(self._in_memory._antibodies)
-        ][:limit]
+        return self._in_memory.list_antibodies(limit=limit)
 
     def delete_antibody(self, antibody_id: str) -> bool:
         """Delete an antibody by ID. Returns True on success."""
@@ -136,27 +175,21 @@ class ImmunologyMemory:
                 logger.warning("Failed to delete antibody %s: %s", antibody_id, e)
                 return False
         # In-memory: delete by index
-        try:
-            idx = int(antibody_id)
-            if 0 <= idx < len(self._in_memory._antibodies):
-                del self._in_memory._antibodies[idx]
-                return True
-        except (ValueError, IndexError):
-            pass
-        return False
+        return self._in_memory.delete_antibody(antibody_id)
 
     def clear_all(self) -> int:
         """Delete all antibodies. Returns count of deleted items."""
-        count = self.count()
         if self._backend == "chromadb":
+            count = self.count()
             try:
                 data = self.collection.get()
                 if data and data.get("ids"):
                     self.collection.delete(ids=data["ids"])
             except Exception as e:
                 logger.warning("Failed to clear chromadb: %s", e)
+                count = 0
         else:
-            self._in_memory._antibodies.clear()
+            count = self._in_memory.clear_all()
         logger.info("Cleared %d antibodies", count)
         return count
 

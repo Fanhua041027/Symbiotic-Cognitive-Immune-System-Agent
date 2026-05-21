@@ -83,6 +83,23 @@ antibody_llm = _create_llm("ANTIBODY_LLM_MODEL", 0.2)
 
 
 # ---------------------------------------------------------------------------
+# 执行轨迹辅助
+# ---------------------------------------------------------------------------
+def _append_trace(state: ImmunologyState, entry: str) -> list[str]:
+    trace = list(state.get("workflow_trace") or [])
+    trace.append(entry)
+    return trace
+
+
+def _build_result(state: ImmunologyState, **kwargs) -> dict:
+    """Merge given kwargs into a result dict, preserving workflow_trace."""
+    result = dict(kwargs)
+    if "workflow_trace" not in result:
+        result["workflow_trace"] = list(state.get("workflow_trace") or [])
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 节点 A: 主智能体 (Worker)
 # ---------------------------------------------------------------------------
 def main_worker_node(state: ImmunologyState) -> dict:

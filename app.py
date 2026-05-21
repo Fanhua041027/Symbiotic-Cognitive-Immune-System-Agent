@@ -131,6 +131,32 @@ tab_query, tab_history, tab_memory, tab_graph, tab_benchmark, tab_metrics = tabs
 
 # ===== Tab 1: Run Query =====
 with tab_query:
+    # System Status Panel
+    with st.container():
+        st.markdown("### System Status")
+        try:
+            from core.memory import memory_db
+            mem_backend = getattr(memory_db, "_backend", "unknown")
+            mem_count = memory_db.count()
+        except Exception:
+            mem_backend = "unknown"
+            mem_count = "N/A"
+
+        status_cols = st.columns(6)
+        with status_cols[0]:
+            st.metric("LLM Provider", cfg("LLM_PROVIDER", "openai").capitalize())
+        with status_cols[1]:
+            st.metric("Worker Model", cfg("MAIN_LLM_MODEL", "gpt-4o"))
+        with status_cols[2]:
+            st.metric("Monitor Model", cfg("MONITOR_LLM_MODEL", "gpt-4o-mini"))
+        with status_cols[3]:
+            st.metric("Sandbox", cfg("SANDBOX_MODE", "simulated").capitalize())
+        with status_cols[4]:
+            st.metric("Memory Backend", mem_backend)
+        with status_cols[5]:
+            st.metric("Antibodies", mem_count)
+        st.markdown("---")
+
     col_input, col_config = st.columns([3, 1])
 
     with col_input:

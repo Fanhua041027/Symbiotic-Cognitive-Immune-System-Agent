@@ -34,18 +34,37 @@ class TestState:
             "validation_status": None,
             "iteration_count": 0,
             "escalation_report": None,
+            "workflow_trace": [],
         }
         assert state["user_query"] == "test"
         assert state["iteration_count"] == 0
         assert state["escalation_report"] is None
+        assert state["workflow_trace"] == []
+        assert isinstance(state["workflow_trace"], list)
 
-    def test_state_iteration_count_increments(self):
+    def test_state_workflow_trace_tracking(self):
+        """Workflow trace correctly tracks execution steps."""
+        state: ImmunologyState = {
+            "user_query": "test", "task_steps": [], "anomalies": [],
+            "antibodies": [], "final_output": None,
+            "is_immune_active": False, "validation_status": None,
+            "iteration_count": 0, "escalation_report": None,
+            "workflow_trace": [],
+        }
+        assert len(state["workflow_trace"]) == 0
+        state["workflow_trace"].append("enter:worker")
+        assert len(state["workflow_trace"]) == 1
+        assert state["workflow_trace"][0] == "enter:worker"
+        state["workflow_trace"].append("enter:monitor")
+        state["workflow_trace"].append("route:end")
+        assert len(state["workflow_trace"]) == 3
         """State correctly handles iteration count updates."""
         state: ImmunologyState = {
             "user_query": "test", "task_steps": [], "anomalies": [],
             "antibodies": [], "final_output": None,
             "is_immune_active": False, "validation_status": None,
             "iteration_count": 0, "escalation_report": None,
+            "workflow_trace": [],
         }
         assert state["iteration_count"] == 0
         state["iteration_count"] = 1
@@ -337,7 +356,134 @@ class TestMetrics:
         assert mt.get_summary()["records"] == 3
 
 
-class TestLogger:
+class TestMemory:
+    """Tests for immune memory storage and retrieval."""
+
+    def test_in_memory_store_and_search(self):
+        """Basic store and search with in-memory backend."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        store.store_antibody("infinite loop detected", "while counter < max: break", "a loop fix")
+        store.store_antibody("recursion error", "if depth > limit: return", "recursion guard")
+        assert store.count() == 2
+
+        result = store.search_antibody("infinite loop")
+        assert result is not None
+        assert "loop" in result["pattern"]
+
+    def test_in_memory_search_no_match(self):
+        """Search with no matching tokens returns None."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        store.store_antibody("syntax error", "fix syntax", "a syntax fix")
+        result = store.search_antibody("量子计算")  # unrelated
+        assert result is None
+
+    def test_in_memory_search_empty_query(self):
+        """Empty query returns None."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        store.store_antibody("error", "fix", "context")
+        assert store.search_antibody("") is None
+
+    def test_in_memory_search_empty_store(self):
+        """Search with no antibodies returns None."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        assert store.search_antibody("anything") is None
+
+    def test_list_antibodies_empty(self):
+        """list_antibodies on empty store returns empty list."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        assert store.list_antibodies() == []
+
+    def test_list_antibodies_limit(self):
+        """list_antibodies respects the limit parameter."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        for i in range(10):
+            store.store_antibody(f"error{i}", f"fix{i}", f"context{i}")
+        listed = store.list_antibodies(limit=3)
+        assert len(listed) == 3
+
+
+    def test_delete_antibody_by_index(self):
+        """Deleting an in-memory antibody by index works."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        store.store_antibody("error A", "fix A", "ctx A")
+        store.store_antibody("error B", "fix B", "ctx B")
+        assert store.delete_antibody("0") is True
+        assert store.count() == 1
+
+    def test_delete_antibody_invalid_index(self):
+        """Deleting with invalid index returns False."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        assert store.delete_antibody("999") is False
+        assert store.delete_antibody("abc") is False
+
+    def test_clear_all_antibodies(self):
+        """Clearing all antibodies empties the store."""
+        from core.memory import InMemoryStore
+        store = InMemoryStore()
+        store.store_antibody("err", "fix", "ctx")
+        count = store.clear_all()
+        assert count == 1
+        assert store.count() == 0
+
+
+class TestConfigSave:
+    """Tests for config save/load functionality."""
+
+    def test_save_config_creates_file(self, tmp_path):
+        """save_config creates a new .env file when none exists."""
+        from core.config import save_config
+        # Temporarily override CONFIG_FILE
+        import core.config as cfg_mod
+        original_path = cfg_mod.CONFIG_FILE
+        test_path = tmp_path / ".env_test"
+        cfg_mod.CONFIG_FILE = str(test_path)
+        try:
+            warnings = save_config({"LLM_PROVIDER": "openai", "MAX_ITERATIONS": "5"})
+            assert test_path.exists()
+            content = test_path.read_text(encoding="utf-8")
+            assert "LLM_PROVIDER=openai" in content
+            assert "MAX_ITERATIONS=5" in content
+            assert len(warnings) == 0
+        finally:
+            cfg_mod.CONFIG_FILE = original_path
+
+    def test_save_config_updates_existing(self, tmp_path):
+        """save_config updates existing keys in .env."""
+        import core.config as cfg_mod
+        original_path = cfg_mod.CONFIG_FILE
+        test_path = tmp_path / ".env_existing"
+        test_path.write_text("LLM_PROVIDER=deepseek\nMAX_ITERATIONS=3\n", encoding="utf-8")
+        cfg_mod.CONFIG_FILE = str(test_path)
+        try:
+            from core.config import save_config
+            warnings = save_config({"MAX_ITERATIONS": "10"})
+            content = test_path.read_text(encoding="utf-8")
+            assert "MAX_ITERATIONS=10" in content
+            assert "LLM_PROVIDER=deepseek" in content  # unchanged
+            assert len(warnings) == 0
+        finally:
+            cfg_mod.CONFIG_FILE = original_path
+
+    def test_save_non_editable_field(self, tmp_path):
+        """Saving a non-editable field should produce a warning."""
+        import core.config as cfg_mod
+        original_path = cfg_mod.CONFIG_FILE
+        test_path = tmp_path / ".env_nonedit"
+        cfg_mod.CONFIG_FILE = str(test_path)
+        try:
+            from core.config import save_config
+            warnings = save_config({"OPENAI_API_KEY": "sk-xxx"})
+            assert any("SKIPPED" in w for w in warnings)
+        finally:
+            cfg_mod.CONFIG_FILE = original_path
     def test_logger_creation(self):
         from core.logger import setup_logger
         logger = setup_logger("test_logger")

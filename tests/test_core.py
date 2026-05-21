@@ -797,13 +797,67 @@ class TestConfigHotReload:
 
         esc_mod.ESCALATION_DIR = original_dir
 
-    def test_llm_cache_key_includes_provider(self):
-        """LLM cache key changes when provider changes."""
-        from core.nodes import _llm_cache
-        if _llm_cache:
+    @patch("core.nodes.ChatOpenAI")
+    def test_llm_cache_key_includes_provider(self, mock_chat):
+        """Cache key encodes role:provider:model:temperature."""
+        from core.nodes import _get_llm, _llm_cache
+        _llm_cache.clear()
+        mock_chat.return_value = MagicMock()
+
+        with patch("core.nodes.cfg") as mock_cfg:
+            def side_effect(key, default=None):
+                vals = {
+                    "LLM_PROVIDER": "openai",
+                    "MAIN_LLM_MODEL": "gpt-4o",
+                    "LLM_TEMPERATURE": 0.7,
+                }
+                return vals.get(key, default)
+            mock_cfg.side_effect = side_effect
+
+            llm = _get_llm("main", "MAIN_LLM_MODEL", 0.7)
+            assert llm is not None
+
             key = list(_llm_cache.keys())[0]
             parts = key.split(":")
-            assert len(parts) >= 4  # role : provider : model : temperature
+            assert len(parts) == 4
+            assert parts[0] == "main"    # role
+            assert parts[1] == "openai"  # provider
+
+    @patch("core.nodes.ChatOpenAI")
+    def test_llm_cache_key_changes_with_provider(self, mock_chat):
+        """Different provider creates a different cache entry."""
+        from core.nodes import _get_llm, _llm_cache
+        _llm_cache.clear()
+        mock_chat.return_value = MagicMock()
+
+        with patch("core.nodes.cfg") as mock_cfg:
+            def side_effect(key, default=None):
+                vals = {
+                    "LLM_PROVIDER": "openai",
+                    "MAIN_LLM_MODEL": "gpt-4o",
+                    "LLM_TEMPERATURE": 0.7,
+                }
+                return vals.get(key, default)
+            mock_cfg.side_effect = side_effect
+
+            _get_llm("main", "MAIN_LLM_MODEL", 0.7)
+            keys_before = set(_llm_cache.keys())
+
+            # Switch provider
+            def side_effect2(key, default=None):
+                vals = {
+                    "LLM_PROVIDER": "deepseek",
+                    "MAIN_LLM_MODEL": "gpt-4o",
+                    "LLM_TEMPERATURE": 0.7,
+                }
+                return vals.get(key, default)
+            mock_cfg.side_effect = side_effect2
+
+            _get_llm("main", "MAIN_LLM_MODEL", 0.7)
+            keys_after = set(_llm_cache.keys())
+
+            # Should have a new key, not reuse the old one
+            assert len(keys_after) == len(keys_before) + 1
 
 
 class TestConfigSaveLive:

@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Syntax check
+        run: |
+          python -m py_compile core/state.py
+          python -m py_compile core/logger.py
+          python -m py_compile core/config.py
+          python -m py_compile core/memory.py
+          python -m py_compile core/sandbox.py
+          python -m py_compile core/escalation.py
+          python -m py_compile core/nodes.py
+          python -m py_compile core/workflow.py
+          python -m py_compile immune_agent.py
+      - name: Check imports (structural)
+        run: |
+          python -c "
+            import ast, sys
+            for f in ['core/state.py','core/logger.py','core/config.py',
+                      'core/sandbox.py','core/escalation.py']:
+              ast.parse(open(f, encoding='utf-8').read())
+            print('All AST checks passed')
+          "
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-mock
+      - name: Run unit tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python -m pytest tests/ -v --tb=short -x
+        timeout-minutes: 5
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t immune-agent .
+      - name: Verify container starts
+        run: |
+          docker run --rm immune-agent python -c "
+            import sys; sys.path.insert(0, '.')
+            from core.state import ImmunologyState
+            from core.logger import setup_logger
+            from core.config import validate_all
+            print('Container OK')
+          "

@@ -1,9 +1,11 @@
-.PHONY: install run demo interactive test adversarial clean
+.PHONY: install run demo interactive test adversarial clean lint precommit docker-build docker-run docker-interactive
 
 # Install dependencies
 install:
 	pip install -r requirements.txt
-	pip install pytest  # test dependency
+
+install-dev:
+	pip install -r requirements.txt pytest pre-commit ruff mypy
 
 # Run demo
 run demo:
@@ -24,6 +26,16 @@ test:
 # Run adversarial benchmark
 adversarial:
 	python tests/adversarial.py
+
+# Code quality
+lint:
+	python -m py_compile core/*.py immune_agent.py tests/*.py
+	@echo "All files compile OK"
+
+precommit:
+	pip install pre-commit
+	pre-commit install
+	pre-commit run --all-files
 
 # Clean caches and logs
 clean:

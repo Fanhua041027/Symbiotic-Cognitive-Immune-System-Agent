@@ -9,6 +9,10 @@ python-dotenv>=1.1.0
 # Optional: Web UI
 # streamlit>=1.30.0
 
+# Optional: REST API
+# fastapi>=0.110.0
+# uvicorn>=0.29.0
+
 # Optional: development
 # pytest>=8.0
 # pre-commit>=3.0

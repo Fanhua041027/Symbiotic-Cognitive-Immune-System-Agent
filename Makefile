@@ -42,13 +42,17 @@ adversarial benchmark:
 
 # Code quality
 lint:
-	python -m py_compile core/*.py immune_agent.py app.py tests/*.py
+	python -m py_compile core/*.py immune_agent.py app.py api.py tests/*.py
 	@echo "All files compile OK"
 
 precommit:
 	pip install pre-commit
 	pre-commit install
 	pre-commit run --all-files
+
+# Run API server (requires fastapi + uvicorn)
+api:
+	python api.py
 
 # Clean caches and logs
 clean:

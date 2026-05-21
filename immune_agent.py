@@ -55,8 +55,10 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
         timeout: 超时秒数（默认 60s，超过返回 timeout 错误）
     """
     import signal
+    import time as _time
 
     from core.workflow import app
+    from core.metrics import metrics
 
     config = {"recursion_limit": max(20, cfg("MAX_ITERATIONS", 5) * 4)}
     initial_state = {
@@ -83,14 +85,23 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
         signal.alarm(int(timeout))
 
     try:
+        start_time = _time.time()
         result = app.invoke(initial_state, config=config)
+        duration = _time.time() - start_time
+        result["user_query"] = query
+        result["duration"] = duration
+        metrics_record = metrics.record_query(result)
         return result
     except TimeoutError_ as e:
         logger.error("Workflow timed out: %s", e)
-        return {"final_output": None, "error": str(e)}
+        error_result = {"final_output": None, "error": str(e), "user_query": query}
+        metrics.record_query(error_result)
+        return error_result
     except Exception as e:
         logger.error("Workflow interrupted: %s", e)
-        return {"final_output": None, "error": str(e)}
+        error_result = {"final_output": None, "error": str(e), "user_query": query}
+        metrics.record_query(error_result)
+        return error_result
     finally:
         if hasattr(signal, "SIGALRM"):
             signal.alarm(0)

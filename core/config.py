@@ -5,7 +5,7 @@ typed access to all configuration values.
 """
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -63,11 +63,11 @@ def validate_all() -> list[str]:
             continue
 
         try:
-            if cast_type == bool:
+            if cast_type is bool:
                 _values[key] = raw.lower() in ("1", "true", "yes")
-            elif cast_type == int:
+            elif cast_type is int:
                 _values[key] = int(raw)
-            elif cast_type == float:
+            elif cast_type is float:
                 _values[key] = float(raw)
             else:
                 _values[key] = raw

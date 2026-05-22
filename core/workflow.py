@@ -56,7 +56,44 @@ def _with_trace(node_name: str, func):
 
 
 # ---------------------------------------------------------------------------
-# 条件路由 (with trace injection)
+# Finalize 节点 — 在流程结束前处理升级/成功记录
+# ---------------------------------------------------------------------------
+def finalize_node(state: ImmunologyState) -> dict:
+    """
+    最终节点：处理升级报告和成功记录，不参与路由决策。
+
+    在流程结束时运行，负责记录免疫响应的结果。
+    """
+    result: dict = {}
+    max_iterations = cfg("MAX_ITERATIONS", 5)
+    anomalies = state.get("anomalies", [])
+    has_anomalies = bool(anomalies)
+    has_output = state.get("final_output") is not None
+    iteration = state.get("iteration_count") or 0
+    has_antibodies = bool(state.get("antibodies"))
+
+    if iteration >= max_iterations:
+        logger.warning("Max iterations (%d) reached.", max_iterations)
+        if has_anomalies:
+            report_path = escalation.record_failure(
+                query=state.get("user_query", ""),
+                anomaly_reason=(
+                    anomalies[-1].get("reason", "Unknown") if anomalies else "Unknown"
+                ),
+                antibodies_generated=len(state.get("antibodies", [])),
+            )
+            if report_path:
+                result["escalation_report"] = report_path
+        elif has_output and has_antibodies:
+            escalation.record_success()
+    elif has_output and has_antibodies:
+        escalation.record_success()
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 条件路由 (pure routing, no side effects)
 # ---------------------------------------------------------------------------
 def should_continue(state: ImmunologyState) -> Route:
     """
@@ -67,6 +104,9 @@ def should_continue(state: ImmunologyState) -> Route:
       - 有未处理的异常 → 免疫响应 (生成抗体)
       - 已有最终输出且健康 → 结束
       - 否则 → 继续执行
+
+    Note: 本函数仅做路由判断，不修改 state。
+          升级/成功记录由 finalize_node 处理。
     """
     max_iterations = cfg("MAX_ITERATIONS", 5)
     anomalies = state.get("anomalies", [])
@@ -76,26 +116,10 @@ def should_continue(state: ImmunologyState) -> Route:
 
     decision: Route
     if iteration >= max_iterations:
-        logger.warning("Max iterations (%d) reached, forcing end.", max_iterations)
-        if has_anomalies:
-            report_path = escalation.record_failure(
-                query=state.get("user_query", ""),
-                anomaly_reason=(
-                    state["anomalies"][-1].get("reason", "Unknown")
-                    if state.get("anomalies") else "Unknown"
-                ),
-                antibodies_generated=len(state.get("antibodies", [])),
-            )
-            if report_path:
-                state["escalation_report"] = report_path
-        elif has_output and state.get("antibodies"):
-            escalation.record_success()
         decision = "end"
     elif has_anomalies:
         decision = "immune_response"
     elif has_output:
-        if state.get("antibodies"):
-            escalation.record_success()
         decision = "end"
     else:
         decision = "continue"
@@ -115,6 +139,7 @@ def build_workflow() -> StateGraph:
     workflow.add_node("monitor", _with_trace("monitor", monitor_node))
     workflow.add_node("generate_antibody", _with_trace("generate_antibody", generate_antibody_node))
     workflow.add_node("validate_antibody", _with_trace("validate_antibody", validate_antibody_node))
+    workflow.add_node("finalize", _with_trace("finalize", finalize_node))
 
     # 入口 → 主智能体
     workflow.add_edge(START, "worker")
@@ -129,13 +154,16 @@ def build_workflow() -> StateGraph:
         {
             "continue": "worker",
             "immune_response": "generate_antibody",
-            "end": END,
+            "end": "finalize",
         },
     )
 
     # 免疫回路: 生成抗体 → 验证 → 回到主智能体重试
     workflow.add_edge("generate_antibody", "validate_antibody")
     workflow.add_edge("validate_antibody", "worker")
+
+    # 终结点：finalize → END
+    workflow.add_edge("finalize", END)
 
     return workflow.compile()
 

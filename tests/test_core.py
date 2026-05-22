@@ -144,33 +144,6 @@ class TestWorkflowRouting:
         assert should_continue(state) == "end"
 
     @patch("core.workflow.cfg")
-    @patch("core.workflow.escalation.record_success")
-    def test_max_iterations_calls_record_success(self, mock_success, mock_cfg):
-        """Max iterations reached with output+antibodies calls record_success."""
-        mock_cfg.return_value = 2
-        from core.workflow import should_continue
-        state = self._make_state(
-            iteration_count=2,
-            final_output="ok",
-            antibodies=[{"code": "fix"}],
-        )
-        assert should_continue(state) == "end"
-        mock_success.assert_called_once()
-
-    @patch("core.workflow.cfg")
-    @patch("core.workflow.escalation.record_failure")
-    def test_max_iterations_with_anomaly_calls_record_failure(self, mock_fail, mock_cfg):
-        """Max iterations with anomalies calls record_failure."""
-        mock_cfg.return_value = 2
-        from core.workflow import should_continue
-        state = self._make_state(
-            iteration_count=2,
-            anomalies=[{"status": "unhealthy", "reason": "loop", "source": "monitor"}],
-        )
-        assert should_continue(state) == "end"
-        mock_fail.assert_called_once()
-
-    @patch("core.workflow.cfg")
     def test_output_without_antibodies_still_ends(self, mock_cfg):
         """Output present, no antibodies, no anomalies → end."""
         mock_cfg.return_value = 5
@@ -179,36 +152,99 @@ class TestWorkflowRouting:
         assert should_continue(state) == "end"
 
     @patch("core.workflow.cfg")
-    def test_empty_antibodies_list_does_not_trigger_success(self, mock_cfg):
-        """Empty antibodies list should not call record_success."""
+    def test_empty_antibodies_list_still_ends(self, mock_cfg):
+        """Empty antibodies list routes to end (escalation handled in finalize)."""
         mock_cfg.return_value = 5
         from core.workflow import should_continue
         state = self._make_state(final_output="ok", antibodies=[])
-        # Should route to end without calling record_success (no antibodies)
         assert should_continue(state) == "end"
 
 
-class TestWorkflowRoutingEscalationMutation:
-    """Tests for should_continue's state mutation behavior."""
+class TestWorkflowFinalizeNode:
+    """Tests for finalize_node escalation logic."""
+
+    def _make_state(self, **overrides) -> ImmunologyState:
+        base: ImmunologyState = {
+            "user_query": "test", "task_steps": [], "anomalies": [],
+            "antibodies": [], "final_output": None,
+            "is_immune_active": False, "validation_status": None,
+            "iteration_count": 0, "escalation_report": None,
+            "workflow_trace": [],
+        }
+        base.update(overrides)
+        return base
 
     @patch("core.workflow.cfg")
     @patch("core.workflow.escalation.record_failure")
-    def test_escalation_report_set_on_state(self, mock_fail, mock_cfg):
-        """should_continue sets escalation_report in state dict when report generated."""
-        import core.workflow as wf
+    def test_max_iterations_with_anomaly_calls_record_failure(self, mock_fail, mock_cfg):
+        """finalize_node calls record_failure when max iterations + anomalies."""
+        mock_cfg.return_value = 2
+        from core.workflow import finalize_node
+        state = self._make_state(
+            iteration_count=2,
+            anomalies=[{"status": "unhealthy", "reason": "loop", "source": "monitor"}],
+        )
+        result = finalize_node(state)
+        mock_fail.assert_called_once()
+
+    @patch("core.workflow.cfg")
+    @patch("core.workflow.escalation.record_failure")
+    def test_escalation_report_in_result(self, mock_fail, mock_cfg):
+        """finalize_node returns escalation_report in result dict when generated."""
         mock_cfg.return_value = 2
         mock_fail.return_value = "/tmp/escalation_report.json"
-        state: ImmunologyState = {
-            "user_query": "test", "task_steps": [], "anomalies": [
-                {"status": "unhealthy", "reason": "bad", "source": "monitor"},
-            ],
-            "antibodies": [], "final_output": None,
-            "is_immune_active": False, "validation_status": None,
-            "iteration_count": 2, "escalation_report": None,
-            "workflow_trace": [],
-        }
-        wf.should_continue(state)
-        assert state["escalation_report"] == "/tmp/escalation_report.json"
+        from core.workflow import finalize_node
+        state = self._make_state(
+            iteration_count=2,
+            anomalies=[{"status": "unhealthy", "reason": "bad", "source": "monitor"}],
+        )
+        result = finalize_node(state)
+        assert result["escalation_report"] == "/tmp/escalation_report.json"
+
+    @patch("core.workflow.cfg")
+    @patch("core.workflow.escalation.record_success")
+    def test_max_iterations_calls_record_success(self, mock_success, mock_cfg):
+        """finalize_node calls record_success when max iter + output + antibodies."""
+        mock_cfg.return_value = 2
+        from core.workflow import finalize_node
+        state = self._make_state(
+            iteration_count=2,
+            final_output="ok",
+            antibodies=[{"code": "fix"}],
+        )
+        finalize_node(state)
+        mock_success.assert_called_once()
+
+    @patch("core.workflow.cfg")
+    @patch("core.workflow.escalation.record_success")
+    def test_clean_end_calls_record_success(self, mock_success, mock_cfg):
+        """finalize_node calls record_success for clean end with antibodies."""
+        mock_cfg.return_value = 5
+        from core.workflow import finalize_node
+        state = self._make_state(
+            final_output="ok",
+            antibodies=[{"code": "fix"}],
+        )
+        finalize_node(state)
+        mock_success.assert_called_once()
+
+    @patch("core.workflow.cfg")
+    def test_clean_end_no_antibodies_no_escalation(self, mock_cfg):
+        """finalize_node returns empty dict for clean end without antibodies."""
+        mock_cfg.return_value = 5
+        from core.workflow import finalize_node
+        state = self._make_state(final_output="ok")
+        result = finalize_node(state)
+        assert result == {}
+
+    @patch("core.workflow.cfg")
+    def test_no_output_no_anomalies_no_side_effects(self, mock_cfg):
+        """finalize_node returns empty dict when continuing normally."""
+        mock_cfg.return_value = 5
+        from core.workflow import finalize_node
+        state = self._make_state()
+        result = finalize_node(state)
+        assert result == {}
 
 
 # ---------------------------------------------------------------------------
@@ -690,11 +726,11 @@ class TestWorkflowIntegration:
         assert app is not None
 
     def test_workflow_has_required_nodes(self):
-        """Compiled graph contains all four agent nodes."""
+        """Compiled graph contains all agent nodes including finalize."""
         from core.workflow import build_workflow
         app = build_workflow()
         nodes = list(app.get_graph().nodes.keys())
-        for node in ("worker", "monitor", "generate_antibody", "validate_antibody"):
+        for node in ("worker", "monitor", "generate_antibody", "validate_antibody", "finalize"):
             assert node in nodes, f"Missing node: {node}"
 
     def test_workflow_has_correct_edge_structure(self):
@@ -709,17 +745,19 @@ class TestWorkflowIntegration:
             ("worker", "monitor"),
             ("generate_antibody", "validate_antibody"),
             ("validate_antibody", "worker"),
+            ("finalize", "__end__"),
         ]
         for src, dst in required:
             assert (src, dst) in edge_pairs, f"Missing edge: {src} → {dst}"
 
     def test_workflow_monitor_has_conditional_edges(self):
-        """Monitor node has three conditional routes."""
+        """Monitor node has three conditional routes (now via finalize)."""
         from core.workflow import build_workflow
         app = build_workflow()
         edges = list(app.get_graph().edges)
         edge_pairs = {(e[0], e[1]) for e in edges}
-        for target in ("__end__", "generate_antibody", "worker"):
+        # Monitor routes to finalize (end), generate_antibody, or worker
+        for target in ("finalize", "generate_antibody", "worker"):
             assert ("monitor", target) in edge_pairs, (
                 f"Missing conditional edge: monitor → {target}"
             )

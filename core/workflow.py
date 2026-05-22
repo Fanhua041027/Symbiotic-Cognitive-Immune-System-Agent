@@ -165,7 +165,7 @@ def build_workflow() -> StateGraph:
     # 终结点：finalize → END
     workflow.add_edge("finalize", END)
 
-    return workflow.compile()
+    return workflow.compile()  # type: ignore[return-value]
 
 
 # 编译好的应用实例

@@ -74,9 +74,9 @@ class ASTValidator:
                 if isinstance(func, ast.Attribute):
                     # Walk attribute chain to find the root module name
                     # e.g. os.path.join -> os is the root
-                    root = func
+                    root: ast.expr = func
                     while isinstance(root, ast.Attribute):
-                        root = root.value
+                        root = root.value  # type: ignore[assignment]
                     if isinstance(root, ast.Name) and root.id in cls.SUSPICIOUS_MODULES:
                         return False, (
                             f"Dangerous function call from module: {root.id}"

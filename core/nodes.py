@@ -221,7 +221,8 @@ Analyze your own reasoning for these defect patterns with specific examples:
 
     try:
         response = get_main_llm().invoke(full_prompt)
-        content = response.content.strip()
+        content = response.content if isinstance(response.content, str) else str(response.content)
+        content = content.strip()
     except Exception as e:
         logger.error("Worker LLM call failed: %s", e)
         return {
@@ -321,7 +322,8 @@ Examples:
 
     try:
         response = get_monitor_llm().invoke(prompt)
-        content = response.content.strip()
+        content = response.content if isinstance(response.content, str) else str(response.content)
+        content = content.strip()
     except Exception as e:
         logger.error("Monitor LLM call failed: %s", e)
         # 默认安全：监察员异常时视为健康
@@ -383,7 +385,8 @@ Generate a Python code "antibody" — a self-contained patch that prevents this 
 
     try:
         response = get_antibody_llm().invoke(prompt)
-        content = response.content.strip()
+        content = response.content if isinstance(response.content, str) else str(response.content)
+        content = content.strip()
     except Exception as e:
         logger.error("Antibody LLM call failed: %s", e)
         patch = {

@@ -94,7 +94,7 @@ class MetricsTracker:
 
             session_duration = time.time() - self._session_start
 
-            anomaly_sources = Counter()
+            anomaly_sources: Counter[str] = Counter()
             for r in self._records:
                 for src in r.anomaly_sources:
                     anomaly_sources[src] += 1

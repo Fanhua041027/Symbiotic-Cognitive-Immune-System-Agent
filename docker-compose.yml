@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   immune-agent:
     build: .
@@ -12,7 +10,6 @@ services:
       - ./escalations:/app/escalations
     command: python immune_agent.py
 
-  # Interactive mode with TTY
   immune-agent-interactive:
     build: .
     container_name: symbiotic-immune-agent-interactive

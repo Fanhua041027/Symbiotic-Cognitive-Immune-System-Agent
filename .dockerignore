@@ -1,6 +1,7 @@
 # Git
 .git
 .gitignore
+.gitattributes
 
 # Environment
 .env
@@ -29,10 +30,27 @@ Thumbs.db
 logs/
 escalations/
 benchmarks/
+metrics/
 
 # CI / quality
 .github/
 .pre-commit-config.yaml
+.pytest_cache/
+.ruff_cache/
 
-# Docs
+# Docs and dev
 README.md
+CONTRIBUTING.md
+CHANGELOG.md
+SECURITY.md
+Makefile
+pyproject.toml
+
+# Tests (not needed at runtime)
+tests/
+
+# Dev/init tools
+setup_project.py
+2026519/
+行动指南.txt
+ui_screenshot.png

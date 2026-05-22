@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -78,16 +79,20 @@ def _create_llm(model_key: str, temperature: float) -> ChatOpenAI:
 # LLM 实例（惰性初始化：仅在首次调用时创建）
 # ---------------------------------------------------------------------------
 _llm_cache: dict[str, ChatOpenAI] = {}
+_llm_cache_lock = threading.Lock()
 
 
 def _get_llm(role: str, model_key: str, temperature: float) -> ChatOpenAI:
-    """Get or create a lazy LLM instance keyed by effective config values."""
+    """Get or create a lazy LLM instance keyed by effective config values.
+    Thread-safe: uses a lock to prevent duplicate _create_llm calls.
+    """
     provider = cfg("LLM_PROVIDER", "openai")
     model = cfg(model_key)
     cache_key = f"{role}:{provider}:{model}:{temperature}"
-    if cache_key not in _llm_cache:
-        _llm_cache[cache_key] = _create_llm(model_key, temperature)
-    return _llm_cache[cache_key]
+    with _llm_cache_lock:
+        if cache_key not in _llm_cache:
+            _llm_cache[cache_key] = _create_llm(model_key, temperature)
+        return _llm_cache[cache_key]
 
 
 def get_main_llm() -> ChatOpenAI:

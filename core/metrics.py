@@ -8,7 +8,7 @@ import json
 import os
 import threading
 import time
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
@@ -40,7 +40,7 @@ class MetricsTracker:
     def __init__(self, window_size: int = 1000):
         self._lock = threading.Lock()
         self._window_size = window_size
-        self._records: list[QueryRecord] = []
+        self._records: deque[QueryRecord] = deque(maxlen=window_size)
         self._anomaly_counter: Counter[str] = Counter()
         self._session_start = time.time()
         self._total_duration = 0.0
@@ -67,8 +67,6 @@ class MetricsTracker:
 
         with self._lock:
             self._records.append(record)
-            if len(self._records) > self._window_size:
-                self._records.pop(0)
             self._total_duration += record.duration
             for src in anomaly_sources:
                 self._anomaly_counter[src] += 1
@@ -140,7 +138,7 @@ class MetricsTracker:
                     "immune": r.immune_activated,
                     "success": r.success,
                 }
-                for r in (self._records[-20:] if self._records else [])
+                for r in (list(self._records)[-20:] if self._records else [])
             ],
         }
 

@@ -204,7 +204,7 @@ with st.sidebar:
     current = cfg("LLM_PROVIDER", "openai")
     provider = st.selectbox("provider", options=providers, index=providers.index(current) if current in providers else 0, label_visibility="collapsed")
 
-    sandbox_modes = ["simulated", "ast", "docker"]
+    sandbox_modes = ["simulated", "ast", "docker", "e2b"]
     cur_sb = cfg("SANDBOX_MODE", "simulated")
     sandbox_mode = st.selectbox("sandbox", options=sandbox_modes, index=sandbox_modes.index(cur_sb) if cur_sb in sandbox_modes else 0, label_visibility="collapsed")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -228,7 +228,9 @@ with st.sidebar:
                "MAIN_LLM_MODEL": worker_model, "MONITOR_LLM_MODEL": monitor_model, "LLM_TEMPERATURE": str(temperature)}
         w = _save_cfg(ups)
         for x in w: st.warning(x)
-        if not w: st.success("Saved!")
+        if not w:
+            st.success("Saved!")
+            st.toast("Configuration saved", icon="✅")
 
     st.markdown("---")
     # System status
@@ -310,6 +312,7 @@ with tq:
         ("Worker", cfg("MAIN_LLM_MODEL", "gpt-4o")),
         ("Monitor", cfg("MONITOR_LLM_MODEL", "gpt-4o-mini")),
         ("Sandbox", cfg("SANDBOX_MODE", "simulated").capitalize()),
+        ("Max Iter", str(cfg("MAX_ITERATIONS", 5))),
         ("Memory", mbk.capitalize()),
         ("Antibodies", str(mcnt)),
     ]
@@ -335,7 +338,8 @@ with tq:
 
     # Results
     if run and query:
-        with st.spinner("Running workflow..."):
+        st.toast("Worker → Monitor → Antibody Gen → Validator", icon="⚙️")
+        with st.spinner("Running immune workflow..."):
             start = time.time()
             result = run_single_query(query)
             dur = time.time() - start
@@ -440,7 +444,21 @@ with th:
         cc1, cc2, _ = st.columns([1, 1, 4])
         with cc1:
             if st.button("Clear", use_container_width=True):
-                st.session_state.query_history = []; st.rerun()
+                st.session_state._confirm_clear_hist = True
+                st.rerun()
+        if st.session_state.get("_confirm_clear_hist"):
+            st.warning("Clear all query history?")
+            y, n = st.columns([1, 1])
+            with y:
+                if st.button("Yes, clear"):
+                    st.session_state.query_history = []
+                    st.session_state._confirm_clear_hist = False
+                    st.toast("History cleared")
+                    st.rerun()
+            with n:
+                if st.button("Cancel"):
+                    st.session_state._confirm_clear_hist = False
+                    st.rerun()
         with cc2:
             if st.button("Export JSON", use_container_width=True):
                 st.json(h[-50:])
@@ -478,11 +496,29 @@ with tm:
                 st.markdown("**Code**"); st.code(ab.get("code", "N/A"), language="python", wrap_lines=True)
                 st.markdown("**Context**"); st.markdown(ab.get("context", "N/A")[:500])
                 st.caption(f"ID: {ab.get('id', 'unknown')}")
-                if st.button("Delete", key=f"d_{i}_{ab.get('id', '')}", use_container_width=True):
-                    if mem.delete_antibody(ab.get("id", "")): st.success("Deleted!"); st.rerun()
+                with st.popover("Delete", use_container_width=True):
+                    st.warning("Delete this antibody?")
+                    if st.button("Yes, delete", key=f"yd_{i}_{ab.get('id', '')}", use_container_width=True):
+                        mem.delete_antibody(ab.get("id", ""))
+                        st.toast("Antibody deleted")
+                        st.rerun()
     st.markdown("---")
     if st.button("Clear All", use_container_width=False):
-        c = mem.clear_all(); st.success(f"Cleared {c} antibodies."); st.rerun()
+        st.session_state._confirm_clear_mem = True
+        st.rerun()
+    if st.session_state.get("_confirm_clear_mem"):
+        cols = st.columns([2, 1, 1])
+        with cols[0]: st.warning("Clear all antibodies?")
+        with cols[1]:
+            if st.button("Yes, clear all"):
+                c = mem.clear_all()
+                st.session_state._confirm_clear_mem = False
+                st.toast(f"Cleared {c} antibodies")
+                st.rerun()
+        with cols[2]:
+            if st.button("No"):
+                st.session_state._confirm_clear_mem = False
+                st.rerun()
 
 # ================================================================
 # TAB 4: Workflow Graph
@@ -530,27 +566,42 @@ with tb:
         n_total = len(ADVERSARIAL_QUERIES)
         prog = st.progress(0)
         sts = st.empty()
+
+        # Live stats (update in-place during run)
+        live_cols = st.columns(4)
+        live_metrics = [c.empty() for c in live_cols]
+        table_placeholder = st.empty()
+
         results = []
         stats = {"total": n_total, "detected": 0, "immune": 0, "dur": 0.0}
+
         for i, q in enumerate(ADVERSARIAL_QUERIES, 1):
-            sts.text(f"Test {i}/{n_total}")
+            sts.text(f"Test {i}/{n_total}: {q[:80]}...")
             start = time.time()
             r = run_single_query(q)
             d = time.time() - start
-            if len(r.get("anomalies", [])) > 0: stats["detected"] += 1
-            if r.get("is_immune_active"): stats["immune"] += 1
+
+            has_anom = len(r.get("anomalies", [])) > 0
+            has_immune = r.get("is_immune_active", False)
+            if has_anom: stats["detected"] += 1
+            if has_immune: stats["immune"] += 1
             stats["dur"] += d
-            results.append({"#": i, "Anomalies": len(r.get("anomalies", [])) > 0, "Immune": r.get("is_immune_active"), "Dur": f"{d:.1f}s"})
+            results.append({"#": i, "Anomalies": "Yes" if has_anom else "—", "Immune": "Yes" if has_immune else "—", "Dur": f"{d:.1f}s"})
+
             prog.progress(i / n_total)
+
+            # Live metrics update every iteration
+            dr = stats["detected"] / i * 100
+            ir = stats["immune"] / stats["detected"] * 100 if stats["detected"] > 0 else 0
+            live_metrics[0].metric("Completed", f"{i}/{n_total}")
+            live_metrics[1].metric("Detected", f'{stats["detected"]} ({dr:.0f}%)')
+            live_metrics[2].metric("Immune", f'{stats["immune"]} ({ir:.0f}%)')
+            live_metrics[3].metric("Avg Time", f'{stats["dur"]/i:.1f}s')
+
+            table_placeholder.dataframe(results[-30:], use_container_width=True)
+
         sts.text("Done!")
-        dr = stats["detected"] / stats["total"] * 100
-        ir = stats["immune"] / stats["detected"] * 100 if stats["detected"] > 0 else 0
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.metric("Tests", stats["total"])
-        with c2: st.metric("Detected", f'{stats["detected"]} ({dr:.0f}%)')
-        with c3: st.metric("Immune", f'{stats["immune"]} ({ir:.0f}%)')
-        with c4: st.metric("Duration", f'{stats["dur"]:.1f}s')
-        st.dataframe(results, use_container_width=True)
+        st.toast(f"Benchmark: {stats['total']} tests, {stats['detected']} anomalies detected, {stats['immune']} immune responses", icon="📊")
 
 # ================================================================
 # TAB 6: Metrics

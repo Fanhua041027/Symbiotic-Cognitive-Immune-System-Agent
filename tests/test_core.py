@@ -135,6 +135,81 @@ class TestWorkflowRouting:
         )
         assert should_continue(state) == "end"
 
+    @patch("core.workflow.cfg")
+    def test_max_iterations_no_output_still_ends(self, mock_cfg):
+        """Max iterations with no output and no anomalies still ends."""
+        mock_cfg.return_value = 2
+        from core.workflow import should_continue
+        state = self._make_state(iteration_count=2)
+        assert should_continue(state) == "end"
+
+    @patch("core.workflow.cfg")
+    @patch("core.workflow.escalation.record_success")
+    def test_max_iterations_calls_record_success(self, mock_success, mock_cfg):
+        """Max iterations reached with output+antibodies calls record_success."""
+        mock_cfg.return_value = 2
+        from core.workflow import should_continue
+        state = self._make_state(
+            iteration_count=2,
+            final_output="ok",
+            antibodies=[{"code": "fix"}],
+        )
+        assert should_continue(state) == "end"
+        mock_success.assert_called_once()
+
+    @patch("core.workflow.cfg")
+    @patch("core.workflow.escalation.record_failure")
+    def test_max_iterations_with_anomaly_calls_record_failure(self, mock_fail, mock_cfg):
+        """Max iterations with anomalies calls record_failure."""
+        mock_cfg.return_value = 2
+        from core.workflow import should_continue
+        state = self._make_state(
+            iteration_count=2,
+            anomalies=[{"status": "unhealthy", "reason": "loop", "source": "monitor"}],
+        )
+        assert should_continue(state) == "end"
+        mock_fail.assert_called_once()
+
+    @patch("core.workflow.cfg")
+    def test_output_without_antibodies_still_ends(self, mock_cfg):
+        """Output present, no antibodies, no anomalies → end."""
+        mock_cfg.return_value = 5
+        from core.workflow import should_continue
+        state = self._make_state(final_output="hello")
+        assert should_continue(state) == "end"
+
+    @patch("core.workflow.cfg")
+    def test_empty_antibodies_list_does_not_trigger_success(self, mock_cfg):
+        """Empty antibodies list should not call record_success."""
+        mock_cfg.return_value = 5
+        from core.workflow import should_continue
+        state = self._make_state(final_output="ok", antibodies=[])
+        # Should route to end without calling record_success (no antibodies)
+        assert should_continue(state) == "end"
+
+
+class TestWorkflowRoutingEscalationMutation:
+    """Tests for should_continue's state mutation behavior."""
+
+    @patch("core.workflow.cfg")
+    @patch("core.workflow.escalation.record_failure")
+    def test_escalation_report_set_on_state(self, mock_fail, mock_cfg):
+        """should_continue sets escalation_report in state dict when report generated."""
+        import core.workflow as wf
+        mock_cfg.return_value = 2
+        mock_fail.return_value = "/tmp/escalation_report.json"
+        state: ImmunologyState = {
+            "user_query": "test", "task_steps": [], "anomalies": [
+                {"status": "unhealthy", "reason": "bad", "source": "monitor"},
+            ],
+            "antibodies": [], "final_output": None,
+            "is_immune_active": False, "validation_status": None,
+            "iteration_count": 2, "escalation_report": None,
+            "workflow_trace": [],
+        }
+        wf.should_continue(state)
+        assert state["escalation_report"] == "/tmp/escalation_report.json"
+
 
 # ---------------------------------------------------------------------------
 # Sandbox validators
@@ -776,6 +851,54 @@ class TestWorkflowTrace:
         # Result should have the extended trace
         assert result["workflow_trace"] == ["enter:worker", "enter:monitor"]
 
+    def test_trace_works_with_no_initial_trace(self, immune_state):
+        """_with_trace handles state missing workflow_trace key."""
+        from core.workflow import _with_trace
+        def dummy_node(state):
+            return {"final_output": "ok"}
+
+        wrapped = _with_trace("worker", dummy_node)
+        state: ImmunologyState = dict(immune_state)
+        del state["workflow_trace"]
+        result = wrapped(state)
+        assert "workflow_trace" in result
+        assert "enter:worker" in result["workflow_trace"]
+
+    def test_trace_handles_empty_trace_list(self, immune_state):
+        """_with_trace handles empty workflow_trace list."""
+        from core.workflow import _with_trace
+        def dummy_node(state):
+            return {"final_output": "ok"}
+
+        wrapped = _with_trace("worker", dummy_node)
+        state = dict(immune_state, workflow_trace=[])
+        result = wrapped(state)
+        assert "workflow_trace" in result
+        assert result["workflow_trace"] == ["enter:worker"]
+
+    def test_trace_preserves_existing_trace(self, immune_state):
+        """_with_trace appends to existing trace entries."""
+        from core.workflow import _with_trace
+        def dummy_node(state):
+            return {"final_output": "ok"}
+
+        wrapped = _with_trace("monitor", dummy_node)
+        state = dict(immune_state, workflow_trace=["enter:worker"])
+        result = wrapped(state)
+        assert result["workflow_trace"] == ["enter:worker", "enter:monitor"]
+
+    def test_trace_does_not_overwrite_node_result_trace(self, immune_state):
+        """If node returns workflow_trace, decorator does not overwrite it."""
+        from core.workflow import _with_trace
+        def dummy_node(state):
+            return {"final_output": "ok", "workflow_trace": ["custom"]}
+
+        wrapped = _with_trace("worker", dummy_node)
+        state = dict(immune_state, workflow_trace=[])
+        result = wrapped(state)
+        # Decorator should NOT overwrite since node already provided one
+        assert result["workflow_trace"] == ["custom"]
+
 
 class TestConfigHotReload:
     """Tests that config changes take effect without restart."""
@@ -966,3 +1089,403 @@ class TestConfigValidateAllWarnings:
             )
         finally:
             cfg_mod.CONFIG_FILE = original_path
+
+
+class TestValidateDocker:
+    """Tests for Docker sandbox backend with mocked subprocess."""
+
+    @patch("core.sandbox.subprocess.run")
+    def test_docker_success(self, mock_run):
+        """Docker validation passes when subprocess returns 0."""
+        mock_run.return_value.returncode = 0
+        from core.sandbox import validate_docker
+        valid, reason = validate_docker("print('hello')")
+        assert valid
+        assert reason == ""
+
+    @patch("core.sandbox.subprocess.run")
+    def test_docker_runtime_error(self, mock_run):
+        """Docker validation fails when subprocess returns non-zero."""
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stderr = "NameError: name 'x' is not defined"
+        from core.sandbox import validate_docker
+        valid, reason = validate_docker("print(x)")
+        assert not valid
+        assert "NameError" in reason
+
+    @patch("core.sandbox.subprocess.run")
+    def test_docker_timeout_falls_back_to_ast(self, mock_run):
+        """Docker timeout falls back to AST which passes for safe code."""
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired("docker", 30)
+        from core.sandbox import validate_docker
+        valid, reason = validate_docker("x = 1")
+        assert valid
+
+    @patch("core.sandbox.subprocess.run")
+    def test_docker_timeout_still_catches_dangerous(self, mock_run):
+        """Docker timeout fallback to AST still rejects dangerous code."""
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired("docker", 30)
+        from core.sandbox import validate_docker
+        valid, reason = validate_docker("import os\nos.system('rm')")
+        assert not valid
+
+    @patch("core.sandbox.subprocess.run")
+    def test_docker_not_available_falls_back(self, mock_run):
+        """FileNotFoundError for docker falls back to AST."""
+        mock_run.side_effect = FileNotFoundError()
+        from core.sandbox import validate_docker
+        valid, reason = validate_docker("x = 1")
+        assert valid
+
+    @patch("core.sandbox.subprocess.run")
+    def test_docker_temp_file_cleaned(self, mock_run):
+        """Temporary file is unlinked after docker validation."""
+        mock_run.return_value.returncode = 0
+        from core.sandbox import validate_docker
+        with patch("core.sandbox.tempfile.NamedTemporaryFile") as mock_tmp:
+            mock_f = MagicMock()
+            mock_f.name = "/tmp/test_antibody.py"
+            mock_tmp.return_value.__enter__.return_value = mock_f
+            with patch("core.sandbox.os.unlink") as mock_unlink:
+                validate_docker("print('hi')")
+                mock_unlink.assert_called_once_with("/tmp/test_antibody.py")
+
+    @patch("core.sandbox.subprocess.run")
+    def test_docker_subprocess_args(self, mock_run):
+        """Docker subprocess is invoked with expected arguments."""
+        mock_run.return_value.returncode = 0
+        from core.sandbox import validate_docker
+        validate_docker("print('hi')")
+        args, _ = mock_run.call_args
+        cmd = args[0]
+        assert "docker" in cmd
+        assert "run" in cmd
+        assert "--rm" in cmd
+        assert "python:3.11-alpine" in cmd
+
+
+class TestDockerAvailable:
+    """Tests for _docker_available helper."""
+
+    @patch("core.sandbox.subprocess.run")
+    def test_available_when_command_succeeds(self, mock_run):
+        """_docker_available returns True when docker --version succeeds."""
+        from core.sandbox import _docker_available
+        assert _docker_available()
+
+    @patch("core.sandbox.subprocess.run")
+    def test_not_available_when_not_found(self, mock_run):
+        """_docker_available returns False when docker not installed."""
+        mock_run.side_effect = FileNotFoundError()
+        from core.sandbox import _docker_available
+        assert not _docker_available()
+
+    @patch("core.sandbox.subprocess.run")
+    def test_not_available_on_timeout(self, mock_run):
+        """_docker_available returns False when docker command times out."""
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired("docker", 5)
+        from core.sandbox import _docker_available
+        assert not _docker_available()
+
+
+class TestValidateE2B:
+    """Tests for E2B cloud sandbox backend."""
+
+    def test_e2b_not_installed_falls_back_to_ast(self):
+        """e2b_code_interpreter not installed falls back to AST validation."""
+        from core.sandbox import validate_e2b
+        with patch("core.sandbox.validate_ast", return_value=(True, "")) as mock_ast:
+            valid, _ = validate_e2b("x = 1")
+            assert valid
+            mock_ast.assert_called_once()
+
+    def test_e2b_runtime_error(self):
+        """E2B validation returns error when run_code has an error."""
+        import sys
+        mock_result = MagicMock()
+        mock_result.error = MagicMock()
+        mock_result.error.name = "ZeroDivisionError"
+        mock_result.error.value = "division by zero"
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.run_code.return_value = mock_result
+
+        mock_e2b_mod = type(sys)("e2b_code_interpreter")
+        mock_e2b_mod.Sandbox = MagicMock()
+        mock_e2b_mod.Sandbox.return_value.__enter__.return_value = mock_sandbox
+        mock_e2b_mod.Sandbox.return_value.__exit__.return_value = None
+        saved = sys.modules.get("e2b_code_interpreter")
+        sys.modules["e2b_code_interpreter"] = mock_e2b_mod
+        try:
+            from core.sandbox import validate_e2b
+            valid, reason = validate_e2b("1/0")
+            assert not valid
+            assert "ZeroDivisionError" in reason
+        finally:
+            if saved:
+                sys.modules["e2b_code_interpreter"] = saved
+            else:
+                del sys.modules["e2b_code_interpreter"]
+
+    def test_e2b_success(self):
+        """E2B validation passes when run_code succeeds."""
+        import sys
+        mock_result = MagicMock()
+        mock_result.error = None
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.run_code.return_value = mock_result
+
+        mock_e2b_mod = type(sys)("e2b_code_interpreter")
+        mock_e2b_mod.Sandbox = MagicMock()
+        mock_e2b_mod.Sandbox.return_value.__enter__.return_value = mock_sandbox
+        mock_e2b_mod.Sandbox.return_value.__exit__.return_value = None
+        saved = sys.modules.get("e2b_code_interpreter")
+        sys.modules["e2b_code_interpreter"] = mock_e2b_mod
+        try:
+            from core.sandbox import validate_e2b
+            valid, reason = validate_e2b("print('hello')")
+            assert valid
+            assert reason == ""
+        finally:
+            if saved:
+                sys.modules["e2b_code_interpreter"] = saved
+            else:
+                del sys.modules["e2b_code_interpreter"]
+
+    def test_e2b_exception_falls_back(self):
+        """E2B exception falls back to AST."""
+        import sys
+        mock_e2b_mod = type(sys)("e2b_code_interpreter")
+        mock_cls = MagicMock()
+        mock_cls.return_value.__enter__.side_effect = RuntimeError("connection failed")
+        mock_e2b_mod.Sandbox = mock_cls
+        saved = sys.modules.get("e2b_code_interpreter")
+        sys.modules["e2b_code_interpreter"] = mock_e2b_mod
+        try:
+            from core.sandbox import validate_e2b
+            with patch("core.sandbox.validate_ast", return_value=(True, "")) as mock_ast:
+                valid, _ = validate_e2b("x = 1")
+                assert valid
+                mock_ast.assert_called_once()
+        finally:
+            if saved:
+                sys.modules["e2b_code_interpreter"] = saved
+            else:
+                del sys.modules["e2b_code_interpreter"]
+
+
+class TestValidateAntibodyE2BMode:
+    """Tests for validate_antibody with e2b sandbox mode."""
+
+    @patch("core.sandbox.cfg")
+    @patch("core.sandbox.validate_e2b")
+    def test_e2b_mode_calls_e2b_validator(self, mock_e2b, mock_cfg):
+        """e2b mode dispatches to validate_e2b."""
+        mock_cfg.return_value = "e2b"
+        mock_e2b.return_value = (True, "")
+        from core.sandbox import validate_antibody
+        valid, _ = validate_antibody("print('hello')")
+        assert valid
+        mock_e2b.assert_called_once()
+
+    @patch("core.sandbox.cfg")
+    @patch("core.sandbox.validate_e2b")
+    def test_e2b_mode_detects_dangerous_code(self, mock_e2b, mock_cfg):
+        """e2b mode returns failure when validate_e2b fails."""
+        mock_cfg.return_value = "e2b"
+        mock_e2b.return_value = (False, "Runtime error: syntax error")
+        from core.sandbox import validate_antibody
+        valid, reason = validate_antibody("bad code")
+        assert not valid
+        assert "syntax" in reason
+
+    @patch("core.sandbox.cfg")
+    @patch("core.sandbox.validate_e2b")
+    def test_e2b_mode_fallback_when_not_installed(self, mock_e2b, mock_cfg):
+        """e2b mode calls validate_e2b which handles the not-installed case."""
+        mock_cfg.return_value = "e2b"
+        mock_e2b.return_value = (True, "")
+        from core.sandbox import validate_antibody
+        valid, _ = validate_antibody("x = 1")
+        assert valid
+        mock_e2b.assert_called_once()
+
+
+class TestConfigSandboxModesE2B:
+    """Tests that e2b is in valid sandbox modes."""
+
+    def test_e2b_in_valid_modes(self):
+        from core.config import VALID_SANDBOX_MODES
+        assert "e2b" in VALID_SANDBOX_MODES
+
+    def test_config_e2b_accepted(self):
+        from core.config import validate_all
+        result = validate_all()
+        assert not any("e2b" in w.lower() and "invalid" in w.lower() for w in result)
+
+
+class TestEscalationExtended:
+    """Extended tests for EscalationTracker beyond basic reset."""
+
+    def test_record_success_resets_after_failures(self):
+        """record_success resets consecutive failure counter."""
+        tracker = EscalationTracker()
+        tracker.record_failure("q1", "err", 1)
+        tracker.record_failure("q2", "err", 1)
+        assert tracker.consecutive_failures == 2
+        tracker.record_success()
+        assert tracker.consecutive_failures == 0
+
+    def test_record_success_idempotent(self):
+        """record_success on clean tracker does not error."""
+        tracker = EscalationTracker()
+        tracker.record_success()
+        assert tracker.consecutive_failures == 0
+
+    def test_consecutive_failures_property(self):
+        """consecutive_failures property matches internal counter."""
+        tracker = EscalationTracker()
+        assert tracker.consecutive_failures == 0
+        tracker.record_failure("q", "e", 0)
+        assert tracker.consecutive_failures == 1
+        tracker.record_failure("q", "e", 0)
+        assert tracker.consecutive_failures == 2
+
+    @patch("core.escalation.cfg")
+    def test_record_failure_returns_report_path_on_threshold(self, mock_cfg):
+        """record_failure returns a path when threshold is reached."""
+        mock_cfg.return_value = 2
+        tracker = EscalationTracker()
+        r1 = tracker.record_failure("q1", "e1", 0)
+        assert r1 is None
+        r2 = tracker.record_failure("q2", "e2", 0)
+        assert r2 is not None
+        assert r2.endswith(".json")
+
+    @patch("core.escalation.cfg")
+    def test_report_file_has_correct_content(self, mock_cfg, tmp_path):
+        """Escalation report JSON contains expected fields."""
+        import core.escalation as esc_mod
+        original_dir = esc_mod.ESCALATION_DIR
+        esc_mod.ESCALATION_DIR = str(tmp_path)
+        mock_cfg.return_value = 2
+        try:
+            tracker = EscalationTracker()
+            tracker.record_failure("query1", "anomaly one", 2)
+            path = tracker.record_failure("query2", "anomaly two", 1)
+            assert path is not None
+            assert os.path.exists(path)
+            with open(path, encoding="utf-8") as f:
+                report = json.load(f)
+            assert "title" in report
+            assert "Immune System Escalation Notice" in report["title"]
+            assert report["consecutive_failures"] == 2  # value at time of writing
+            assert report["threshold"] == 2
+            assert len(report["history"]) == 2
+            assert report["history"][0]["query"] == "query1"
+            assert report["history"][1]["query"] == "query2"
+            assert report["history"][1]["antibodies_generated"] == 1
+        finally:
+            esc_mod.ESCALATION_DIR = original_dir
+
+    @patch("core.escalation.cfg")
+    def test_escalation_resets_counter_and_allows_new_cycle(self, mock_cfg, tmp_path):
+        """After escalation resets counter, fresh failures start from 0."""
+        import core.escalation as esc_mod
+        original_dir = esc_mod.ESCALATION_DIR
+        esc_mod.ESCALATION_DIR = str(tmp_path)
+        mock_cfg.return_value = 2
+        try:
+            tracker = EscalationTracker()
+            tracker.record_failure("q1", "e1", 0)  # 1
+            path1 = tracker.record_failure("q2", "e2", 0)  # 2 → triggers escalation
+            assert path1 is not None
+            # Counter should be reset by _generate_report
+            r = tracker.record_failure("q3", "e3", 0)  # 1 (fresh start)
+            assert r is None  # Not escalated yet
+        finally:
+            esc_mod.ESCALATION_DIR = original_dir
+
+    @patch("core.escalation.cfg")
+    def test_record_failure_stops_after_escalation(self, mock_cfg, tmp_path):
+        """After escalation resets counter, fresh failures start from 0."""
+        import core.escalation as esc_mod
+        original_dir = esc_mod.ESCALATION_DIR
+        esc_mod.ESCALATION_DIR = str(tmp_path)
+        mock_cfg.return_value = 2
+        try:
+            tracker = EscalationTracker()
+            tracker.record_failure("q1", "e1", 0)  # 1
+            path1 = tracker.record_failure("q2", "e2", 0)  # 2 → triggers
+            assert path1 is not None  # Escalated
+            # Counter should be reset by _generate_report
+            r = tracker.record_failure("q3", "e3", 0)  # 1 (fresh start)
+            assert r is None  # Not escalated yet
+        finally:
+            esc_mod.ESCALATION_DIR = original_dir
+
+
+class TestVizExtended:
+    """Tests for visualization module stdout functions."""
+
+    def test_print_graph_output(self, capsys):
+        """print_graph prints mermaid graph to stdout."""
+        from core.viz import print_graph
+        print_graph()
+        captured = capsys.readouterr()
+        assert "Immune System Workflow Graph" in captured.out
+        assert "flowchart" in captured.out
+        assert "Worker" in captured.out
+        assert "Monitor" in captured.out
+
+    def test_print_graph_ascii_output(self, capsys):
+        """print_graph_ascii prints ASCII art to stdout."""
+        from core.viz import print_graph_ascii
+        print_graph_ascii()
+        captured = capsys.readouterr()
+        assert "Worker" in captured.out
+        assert "Monitor" in captured.out
+        assert "Escalation" in captured.out
+        assert "END" in captured.out
+
+
+class TestConfigShowSummary:
+    """Tests for config.show_summary."""
+
+    def test_show_summary_runs_without_error(self, caplog):
+        """show_summary logs config summary without erroring."""
+        import logging
+        caplog.set_level(logging.INFO)
+        from core.config import show_summary
+        # show_summary uses logger.info, not print — use caplog
+        show_summary()
+        assert any("Configuration" in r.message for r in caplog.records)
+
+
+class TestImmuneAgentModule:
+    """Tests for immune_agent module-level functions."""
+
+    def test_show_stats_runs_without_error(self, capsys):
+        """show_stats prints system stats without erroring."""
+        from immune_agent import show_stats
+        show_stats()
+        captured = capsys.readouterr()
+        assert "Immune System Statistics" in captured.out
+
+    def test_show_stats_contains_memory_info(self, capsys):
+        """show_stats output includes memory backend info."""
+        from immune_agent import show_stats
+        show_stats()
+        captured = capsys.readouterr()
+        assert "Immune Memory" in captured.out or "Antibodies" in captured.out
+
+    def test_show_stats_shows_config(self, capsys):
+        """show_stats output includes configuration section."""
+        from immune_agent import show_stats
+        show_stats()
+        captured = capsys.readouterr()
+        assert "Configuration" in captured.out or "Provider" in captured.out

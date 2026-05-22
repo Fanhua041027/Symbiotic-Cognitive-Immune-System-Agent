@@ -156,6 +156,28 @@ def _docker_available() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Level 4: E2B cloud sandbox (real execution in E2B)
+# ---------------------------------------------------------------------------
+def validate_e2b(code: str) -> tuple[bool, str]:
+    """Run generated Python code inside an E2B cloud sandbox for real testing."""
+    try:
+        from e2b_code_interpreter import Sandbox
+    except ImportError:
+        logger.warning("e2b_code_interpreter not installed, falling back to AST")
+        return validate_ast(code)
+
+    try:
+        with Sandbox() as sbx:
+            result = sbx.run_code(code)
+            if result.error:
+                return False, f"Runtime error: {result.error.name}: {result.error.value}"
+            return True, ""
+    except Exception as e:
+        logger.error("E2B validation error: %s", e)
+        return validate_ast(code)
+
+
+# ---------------------------------------------------------------------------
 # Level 2 alias (AST only, no Docker)
 # ---------------------------------------------------------------------------
 def validate_ast(code: str) -> tuple[bool, str]:
@@ -180,6 +202,8 @@ def validate_antibody(code: str) -> tuple[bool, str]:
 
     if mode == "docker":
         return validate_docker(code)
+    elif mode == "e2b":
+        return validate_e2b(code)
     elif mode == "ast":
         return validate_ast(code)
     else:

@@ -31,7 +31,7 @@ _CONFIG_DEFS: list[tuple[str, Any, type, bool, str]] = [
     ("ANTIBODY_LLM_MODEL", "gpt-4o", str, False, "Antibody generator LLM model"),
     ("LLM_TEMPERATURE", 0.7, float, False, "LLM temperature"),
     ("MAX_ITERATIONS", 5, int, False, "Max immune iterations"),
-    ("SANDBOX_MODE", "simulated", str, False, "Sandbox mode: simulated/ast/docker"),
+    ("SANDBOX_MODE", "simulated", str, False, "Sandbox mode: simulated/ast/docker/e2b"),
     ("LOG_LEVEL", "INFO", str, False, "Log level: DEBUG/INFO/WARNING/ERROR"),
     ("ESCALATION_THRESHOLD", 3, int, False, "Escalation failure threshold"),
 ]
@@ -40,7 +40,7 @@ _CONFIG_DEFS: list[tuple[str, Any, type, bool, str]] = [
 _values: dict[str, Any] = {}
 _validated = False
 
-VALID_SANDBOX_MODES = {"simulated", "ast", "docker"}
+VALID_SANDBOX_MODES = {"simulated", "ast", "docker", "e2b"}
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 VALID_PROVIDERS = {"openai", "deepseek", "custom"}
 

@@ -23,7 +23,7 @@ import sys
 from dotenv import load_dotenv
 
 from core.logger import setup_logger
-from core.config import validate_all, show_summary
+from core.config import get as cfg, validate_all, show_summary
 
 load_dotenv()
 
@@ -99,10 +99,10 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
             # Windows: use ThreadPoolExecutor for timeout
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(app.invoke, initial_state, config)
-                try:
-                    result = future.result(timeout=timeout)
-                except concurrent.futures.TimeoutError:
-                    raise TimeoutError_(f"Query timed out after {timeout}s")
+            try:
+                result = future.result(timeout=timeout)
+            except concurrent.futures.TimeoutError:
+                raise TimeoutError_(f"Query timed out after {timeout}s")
 
         duration = _time.time() - start_time
         result["user_query"] = query

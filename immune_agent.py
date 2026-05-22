@@ -35,14 +35,20 @@ config_warnings = validate_all()
 show_summary()
 
 if config_warnings:
-    has_critical = any(w.startswith("MISSING: OPENAI_API_KEY") for w in config_warnings)
+    provider = os.getenv("LLM_PROVIDER", "openai")
+    if provider == "deepseek":
+        has_critical = any(w.startswith("MISSING: DEEPSEEK_API_KEY") for w in config_warnings)
+    elif provider == "custom":
+        has_critical = any(w.startswith("MISSING: CUSTOM_API_KEY") for w in config_warnings)
+    else:
+        has_critical = any(w.startswith("MISSING: OPENAI_API_KEY") for w in config_warnings)
     if has_critical and __name__ == "__main__":
         # Only bail for commands that need the API key
         if len(sys.argv) > 1 and sys.argv[1] in ("-s", "--stats", "-g", "--graph"):
             pass  # stats/graph don't need API key
         else:
             logger.error(
-                "OPENAI_API_KEY is not set. "
+                f"{'DEEPSEEK_API_KEY' if provider == 'deepseek' else 'CUSTOM_API_KEY' if provider == 'custom' else 'OPENAI_API_KEY'} is not set. "
                 "Copy .env.example to .env and fill in your API key."
             )
             sys.exit(1)

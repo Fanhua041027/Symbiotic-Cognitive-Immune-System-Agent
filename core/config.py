@@ -22,7 +22,7 @@ logger = setup_logger("config")
 # Validation rules: (key, default, type, required, description)
 _CONFIG_DEFS: list[tuple[str, Any, type, bool, str]] = [
     ("LLM_PROVIDER", "openai", str, False, "LLM provider: openai/deepseek/custom"),
-    ("OPENAI_API_KEY", None, str, True, "OpenAI API key"),
+    ("OPENAI_API_KEY", None, str, False, "OpenAI API key"),
     ("DEEPSEEK_API_KEY", None, str, False,
      "DeepSeek API key (required if LLM_PROVIDER=deepseek)"),
     ("CUSTOM_API_KEY", None, str, False,
@@ -103,6 +103,10 @@ def validate_all() -> list[str]:
             f"INVALID: LLM_PROVIDER={provider!r} -must be one of {VALID_PROVIDERS}"
         )
         _values["LLM_PROVIDER"] = "openai"
+    elif provider == "openai" and not _values.get("OPENAI_API_KEY"):
+        warnings.append(
+            "MISSING: OPENAI_API_KEY -required when LLM_PROVIDER=openai"
+        )
     elif provider == "deepseek" and not _values.get("DEEPSEEK_API_KEY"):
         warnings.append(
             "MISSING: DEEPSEEK_API_KEY -required when LLM_PROVIDER=deepseek"

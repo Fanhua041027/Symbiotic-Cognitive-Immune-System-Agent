@@ -2,7 +2,7 @@
 
 import os
 import uuid
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 from core.logger import setup_logger
 
@@ -29,7 +29,9 @@ class InMemoryStore:
     def __init__(self):
         self._antibodies: list[dict] = []
 
-    def store_antibody(self, error_pattern: str, antibody_code: str, context: str) -> bool:
+    def store_antibody(
+        self, error_pattern: str, antibody_code: str, context: str
+    ) -> bool:
         """Store antibody if no similar one exists. Returns True if stored."""
         # Dedup: check if a similar antibody already exists
         if self._find_similar(error_pattern, antibody_code):
@@ -158,8 +160,12 @@ class ImmunologyMemory:
                 if results["ids"] and results["ids"][0]:
                     existing_meta = (results.get("metadatas") or [[{}]])[0][0]
                     existing_code = existing_meta.get("code", "")
-                    if existing_code and self._token_similarity(antibody_code, existing_code) > 0.7:
-                        logger.debug("Skipping duplicate antibody (chromadb): %s...", error_pattern[:40])
+                    similarity = self._token_similarity(antibody_code, existing_code)
+                    if existing_code and similarity > 0.7:
+                        logger.debug(
+                            "Skipping duplicate antibody (chromadb): %s...",
+                            error_pattern[:40],
+                        )
                         return False
             except Exception:
                 pass  # Proceed with store on query failure
@@ -197,8 +203,10 @@ class ImmunologyMemory:
                 data = self.collection.get(limit=limit)
                 results = []
                 for i, doc_id in enumerate(data.get("ids", [])):
-                    meta = (data.get("metadatas") or [{}])[i] if i < len(data.get("metadatas") or []) else {}
-                    doc = (data.get("documents") or [None])[i] if i < len(data.get("documents") or []) else None
+                    meta_list = data.get("metadatas") or []
+                    meta = meta_list[i] if i < len(meta_list) else {}
+                    doc_list = data.get("documents") or []
+                    doc = doc_list[i] if i < len(doc_list) else None
                     results.append({
                         "id": doc_id,
                         "error_pattern": meta.get("error_pattern", "unknown"),

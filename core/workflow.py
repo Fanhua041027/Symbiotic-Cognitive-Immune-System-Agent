@@ -7,16 +7,16 @@ from langgraph.graph import END, START, StateGraph
 
 load_dotenv()
 
-from core.logger import setup_logger
-from core.state import ImmunologyState
-from core.escalation import escalation
 from core.config import get as cfg
+from core.escalation import escalation
+from core.logger import setup_logger
 from core.nodes import (
+    generate_antibody_node,
     main_worker_node,
     monitor_node,
-    generate_antibody_node,
     validate_antibody_node,
 )
+from core.state import ImmunologyState
 
 # 路由类型
 Route = Literal["continue", "immune_response", "end"]
@@ -43,7 +43,9 @@ def _with_trace(node_name: str, func):
     def wrapped(state: ImmunologyState) -> dict:
         trace = list(state.get("workflow_trace") or [])
         trace.append(f"enter:{node_name}")
-        logger.debug("Trace: entering %s (iter=%d)", label, state.get("iteration_count", 0))
+        logger.debug(
+            "Trace: entering %s (iter=%d)", label, state.get("iteration_count", 0)
+        )
 
         result = func(state)
 
@@ -137,8 +139,12 @@ def build_workflow() -> StateGraph:
     # 注册节点 (用 trace wrapper 包装)
     workflow.add_node("worker", _with_trace("worker", main_worker_node))
     workflow.add_node("monitor", _with_trace("monitor", monitor_node))
-    workflow.add_node("generate_antibody", _with_trace("generate_antibody", generate_antibody_node))
-    workflow.add_node("validate_antibody", _with_trace("validate_antibody", validate_antibody_node))
+    workflow.add_node(
+        "generate_antibody", _with_trace("generate_antibody", generate_antibody_node)
+    )
+    workflow.add_node(
+        "validate_antibody", _with_trace("validate_antibody", validate_antibody_node)
+    )
     workflow.add_node("finalize", _with_trace("finalize", finalize_node))
 
     # 入口 → 主智能体

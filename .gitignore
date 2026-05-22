@@ -223,6 +223,7 @@ escalations/
 benchmarks/
 metrics/
 .immune_db/
+sessions/
 
 # Stray project files
 2026519/

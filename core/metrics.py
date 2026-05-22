@@ -8,8 +8,8 @@ import json
 import os
 import threading
 import time
-from collections import Counter, defaultdict, deque
-from dataclasses import dataclass, field, asdict
+from collections import Counter, deque
+from dataclasses import dataclass
 from typing import Any
 
 from core.logger import setup_logger
@@ -90,7 +90,9 @@ class MetricsTracker:
             durations = [r.duration for r in self._records if r.duration > 0]
             avg_duration = sum(durations) / len(durations) if durations else 0
             max_duration = max(durations) if durations else 0
-            p95_duration = sorted(durations)[int(len(durations) * 0.95)] if durations else 0
+            p95_duration = (
+                sorted(durations)[int(len(durations) * 0.95)] if durations else 0
+            )
 
             session_duration = time.time() - self._session_start
 
@@ -106,8 +108,12 @@ class MetricsTracker:
                 "success_rate": round(successes / total * 100, 1) if total > 0 else 0,
                 "anomaly_rate": round(anomalies / total * 100, 1) if total > 0 else 0,
                 "anomaly_breakdown": dict(anomaly_sources.most_common()),
-                "immune_activation_rate": round(immune_ok / total * 100, 1) if total > 0 else 0,
-                "escalation_rate": round(escalations / total * 100, 1) if total > 0 else 0,
+                "immune_activation_rate": (
+                    round(immune_ok / total * 100, 1) if total > 0 else 0
+                ),
+                "escalation_rate": (
+                    round(escalations / total * 100, 1) if total > 0 else 0
+                ),
                 "avg_antibodies_per_query": round(
                     sum(r.antibody_count for r in self._records) / total, 2
                 ),

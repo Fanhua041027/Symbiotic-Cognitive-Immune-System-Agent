@@ -22,8 +22,9 @@ import sys
 
 from dotenv import load_dotenv
 
+from core.config import get as cfg
+from core.config import show_summary, validate_all
 from core.logger import setup_logger
-from core.config import get as cfg, validate_all, show_summary
 
 load_dotenv()
 
@@ -47,26 +48,33 @@ if config_warnings:
             sys.exit(1)
 
 
-def run_single_query(query: str, timeout: float = 60.0) -> dict:
+def run_single_query(
+    query: str,
+    timeout: float = 60.0,
+    record_session: bool = True,
+) -> dict:
     """运行单次查询并返回完整结果。
 
     Args:
         query: 用户输入的问题
-        timeout: 超时秒数（默认 60s，超过返回 timeout 错误）
+        timeout: 超时秒数
+        record_session: 是否记录到会话管理
     """
     import concurrent.futures
     import signal
     import time as _time
 
-    from core.workflow import app
-    from core.metrics import metrics
+    from core.agent_session import get_session
     from core.escalation import escalation
+    from core.metrics import metrics
+    from core.state import ImmunologyState
+    from core.workflow import app
 
     # Reset per-query state to prevent cross-query bleeding
     escalation.reset()
 
     config = {"recursion_limit": max(20, cfg("MAX_ITERATIONS", 5) * 4)}
-    initial_state = {
+    initial_state: ImmunologyState = {
         "user_query": query,
         "task_steps": [],
         "anomalies": [],
@@ -89,16 +97,16 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
     if use_alarm:
         def _timeout_handler(signum, frame):
             raise TimeoutError_(f"Query timed out after {timeout}s")
-        original_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-        signal.alarm(int(timeout))
+        original_handler = signal.signal(signal.SIGALRM, _timeout_handler)  # type: ignore[attr-defined]
+        signal.alarm(int(timeout))  # type: ignore[attr-defined]
 
     try:
         if use_alarm:
-            result = app.invoke(initial_state, config=config)
+            result = app.invoke(initial_state, config=config)  # type: ignore[attr-defined]
         else:
             # Windows: use ThreadPoolExecutor for timeout
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(app.invoke, initial_state, config)
+                future = pool.submit(app.invoke, initial_state, config)  # type: ignore[attr-defined]
             try:
                 result = future.result(timeout=timeout)
             except concurrent.futures.TimeoutError:
@@ -108,23 +116,29 @@ def run_single_query(query: str, timeout: float = 60.0) -> dict:
         result["user_query"] = query
         result["duration"] = duration
         metrics.record_query(result)
+        if record_session:
+            get_session().record_turn(result)
         return result
 
     except TimeoutError_ as e:
         logger.error("Workflow timed out: %s", e)
         error_result = {"final_output": None, "error": str(e), "user_query": query}
         metrics.record_query(error_result)
+        if record_session:
+            get_session().record_turn(error_result)
         return error_result
     except Exception as e:
         logger.error("Workflow interrupted: %s", e)
         error_result = {"final_output": None, "error": str(e), "user_query": query}
         metrics.record_query(error_result)
+        if record_session:
+            get_session().record_turn(error_result)
         return error_result
     finally:
         if use_alarm:
-            signal.alarm(0)
+            signal.alarm(0)  # type: ignore[attr-defined]
             if 'original_handler' in locals() and original_handler:
-                signal.signal(signal.SIGALRM, original_handler)
+                signal.signal(signal.SIGALRM, original_handler)  # type: ignore[attr-defined]
 
 
 def run_demo() -> None:
@@ -206,10 +220,72 @@ def run_benchmark() -> None:
     _bench()
 
 
+def run_daemon(interval: float = 30.0) -> None:
+    """Daemon mode: continuous self-healing agent with heartbeat."""
+    import time as _time
+
+    from core.agent_session import reset_session
+    from core.metrics import metrics
+
+    session = reset_session()
+    logger.info("=" * 50)
+    logger.info("Daemon mode (session=%s, heartbeat=%ss)", session.session_id, interval)
+    logger.info("=" * 50)
+
+    # Self-check queries to probe agent health
+    _health_checks = [
+        "Write a Python function that adds two numbers and returns the result.",
+        "Explain what a recursive function is in one sentence.",
+    ]
+
+    cycle = 0
+    try:
+        while True:
+            cycle += 1
+            logger.info("[Cycle %d] Heartbeat: health=%.2f, anomalies=%d%%",
+                        cycle, session.health_score(), int(session.anomaly_rate() * 100))
+
+            # Run health check query
+            probe = _health_checks[cycle % len(_health_checks)]
+            result = run_single_query(probe, timeout=30.0, record_session=False)
+            session.record_turn(result)
+
+            # Auto-recovery: if health drops below threshold, take action
+            threshold = cfg("ESCALATION_THRESHOLD", 3) / 10.0
+            if session.health_score() < max(threshold, 0.3):
+                logger.warning(
+                    "Health score below threshold (%.2f), triggering recovery",
+                    threshold,
+                )
+                # Recovery action: reset session state
+                session.record_recovery_event("reset", "Health low, state reset")
+                reset_session()
+                logger.info("Recovery: session state reset")
+
+            # Persist session periodically
+            if cycle % 5 == 0:
+                path = session.save()
+                logger.debug("Session saved to %s", path)
+
+            # Print summary every 10 cycles
+            if cycle % 10 == 0:
+                summary = session.summary()
+                logger.info("Session summary: %s", json.dumps(summary, default=str))
+
+            _time.sleep(interval)
+
+    except KeyboardInterrupt:
+        logger.info("Daemon stopped by user (cycles=%d)", cycle)
+        session.save()
+        metrics.save_report()
+        logger.info("Session and metrics saved.")
+
+
 def show_stats() -> None:
     """Display immune memory and system statistics."""
-    from core.memory import memory_db
+    from core.agent_session import get_session
     from core.config import get as cfg_get
+    from core.memory import memory_db
 
     print("\n" + "=" * 50)
     print("  Immune System Statistics")
@@ -225,7 +301,7 @@ def show_stats() -> None:
         print(f"\n  Immune Memory: error reading ({e})")
 
     # Config summary
-    print(f"\n  Configuration:")
+    print("\n  Configuration:")
     print(f"    Provider       : {cfg_get('LLM_PROVIDER', 'openai')}")
     print(f"    Worker Model   : {cfg_get('MAIN_LLM_MODEL', 'gpt-4o')}")
     print(f"    Monitor Model  : {cfg_get('MONITOR_LLM_MODEL', 'gpt-4o-mini')}")
@@ -233,10 +309,25 @@ def show_stats() -> None:
     print(f"    Max Iterations : {cfg_get('MAX_ITERATIONS', 5)}")
     print(f"    Escalation Thr : {cfg_get('ESCALATION_THRESHOLD', 3)}")
 
-    print(f"\n  Project Info:")
+    # Session stats
+    try:
+        sess = get_session()
+        s = sess.summary()
+        print("\n  Session Stats:")
+        print(f"    ID            : {s['session_id']}")
+        print(f"    Turns         : {s['total_turns']}")
+        print(f"    Health Score  : {s['health_score']}")
+        print(f"    Anomaly Rate  : {s['anomaly_rate']}")
+        print(f"    Recoveries    : {s['total_recoveries']}")
+        print(f"    Uptime        : {s['uptime_seconds']}s")
+    except Exception as e:
+        print(f"\n  Session Stats: error reading ({e})")
+
+    print("\n  Project Info:")
     print(f"    Path   : {os.path.dirname(os.path.abspath(__file__))}")
-    print(f"    Logs   : {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')}")
-    print(f"    Memory : {os.path.join(os.path.dirname(os.path.abspath(__file__)), '.immune_db')}")
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    print(f"    Logs   : {os.path.join(project_dir, 'logs')}")
+    print(f"    Memory : {os.path.join(project_dir, '.immune_db')}")
     print()
 
 
@@ -254,6 +345,8 @@ def main() -> None:
             "  %(prog)s -s                      Show immune memory stats\n"
             "  %(prog)s -q \"hello\" -j          Output as JSON\n"
             "  %(prog)s -q \"hello\" -t 30      Query with 30s timeout\n"
+            "  %(prog)s -d                      Daemon mode (self-healing)\n"
+            "  %(prog)s -d --heartbeat 10       Daemon with 10s heartbeat\n"
         ),
     )
     parser.add_argument(
@@ -292,11 +385,26 @@ def main() -> None:
         action="store_true",
         help="Show immune memory statistics",
     )
+    parser.add_argument(
+        "--daemon", "-d",
+        action="store_true",
+        help="Daemon mode: continuous self-healing agent",
+    )
+    parser.add_argument(
+        "--heartbeat",
+        type=float,
+        default=30.0,
+        help="Heartbeat interval in seconds for daemon mode (default: 30)",
+    )
 
     args = parser.parse_args()
 
     if args.stats:
         show_stats()
+        return
+
+    if args.daemon:
+        run_daemon(interval=args.heartbeat)
         return
 
     if args.graph:

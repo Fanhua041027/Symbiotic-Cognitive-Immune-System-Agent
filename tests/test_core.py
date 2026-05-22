@@ -7,13 +7,11 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pytest
 
 from core.escalation import EscalationTracker
 from core.sandbox import (
     ASTValidator,
     validate_simulated,
-    validate_ast,
 )
 from core.state import ImmunologyState
 
@@ -84,7 +82,7 @@ class TestWorkflowRouting:
             "iteration_count": 0, "escalation_report": None,
             "workflow_trace": [],
         }
-        base.update(overrides)
+        base.update(overrides)  # type: ignore[typeddict-item]
         return base
 
     @patch("core.workflow.cfg")
@@ -101,7 +99,7 @@ class TestWorkflowRouting:
         mock_cfg.return_value = 5
         from core.workflow import should_continue
         state = self._make_state(
-            anomalies=[{"status": "unhealthy", "reason": "loop risk", "source": "monitor"}],
+            anomalies=[{"status": "unhealthy", "reason": "loop", "source": "monitor"}],
         )
         assert should_continue(state) == "immune_response"
 
@@ -171,7 +169,7 @@ class TestWorkflowFinalizeNode:
             "iteration_count": 0, "escalation_report": None,
             "workflow_trace": [],
         }
-        base.update(overrides)
+        base.update(overrides)  # type: ignore[typeddict-item]
         return base
 
     @patch("core.workflow.cfg")
@@ -184,7 +182,7 @@ class TestWorkflowFinalizeNode:
             iteration_count=2,
             anomalies=[{"status": "unhealthy", "reason": "loop", "source": "monitor"}],
         )
-        result = finalize_node(state)
+        _ = finalize_node(state)
         mock_fail.assert_called_once()
 
     @patch("core.workflow.cfg")
@@ -546,8 +544,12 @@ class TestMemory:
         """Basic store and search with in-memory backend."""
         from core.memory import InMemoryStore
         store = InMemoryStore()
-        store.store_antibody("infinite loop detected", "while counter < max: break", "a loop fix")
-        store.store_antibody("recursion error", "if depth > limit: return", "recursion guard")
+        store.store_antibody(
+            "infinite loop detected", "while counter < max: break", "a loop fix",
+        )
+        store.store_antibody(
+            "recursion error", "if depth > limit: return", "recursion guard",
+        )
         assert store.count() == 2
 
         result = store.search_antibody("infinite loop")
@@ -594,8 +596,12 @@ class TestMemory:
         """Storing the same antibody twice skips the second."""
         from core.memory import InMemoryStore
         store = InMemoryStore()
-        stored1 = store.store_antibody("infinite loop risk", "while counter < max: break", "loop fix")
-        stored2 = store.store_antibody("infinite loop risk", "while counter < max: break", "loop fix")
+        stored1 = store.store_antibody(
+            "infinite loop risk", "while counter < max: break", "loop fix",
+        )
+        stored2 = store.store_antibody(
+            "infinite loop risk", "while counter < max: break", "loop fix",
+        )
         assert stored1 is True
         assert stored2 is False
         assert store.count() == 1
@@ -604,8 +610,16 @@ class TestMemory:
         """Storing a very similar antibody pattern is skipped."""
         from core.memory import InMemoryStore
         store = InMemoryStore()
-        store.store_antibody("infinite loop detected in while", "while counter < limit: counter += 1", "context")
-        stored2 = store.store_antibody("infinite loop in while True", "while counter < limit: counter += 1", "context")
+        store.store_antibody(
+            "infinite loop detected in while",
+            "while counter < limit: counter += 1",
+            "context",
+        )
+        stored2 = store.store_antibody(
+            "infinite loop in while True",
+            "while counter < limit: counter += 1",
+            "context",
+        )
         assert stored2 is False
         assert store.count() == 1
 
@@ -614,7 +628,9 @@ class TestMemory:
         from core.memory import InMemoryStore
         store = InMemoryStore()
         store.store_antibody("infinite loop", "while counter < max: break", "loop fix")
-        store.store_antibody("recursion error", "if depth > limit: return", "recursion guard")
+        store.store_antibody(
+            "recursion error", "if depth > limit: return", "recursion guard",
+        )
         assert store.count() == 2
 
     def test_dedup_empty_store(self):
@@ -656,9 +672,9 @@ class TestConfigSave:
 
     def test_save_config_creates_file(self, tmp_path):
         """save_config creates a new .env file when none exists."""
-        from core.config import save_config
         # Temporarily override CONFIG_FILE
         import core.config as cfg_mod
+        from core.config import save_config
         original_path = cfg_mod.CONFIG_FILE
         test_path = tmp_path / ".env_test"
         cfg_mod.CONFIG_FILE = str(test_path)
@@ -677,7 +693,9 @@ class TestConfigSave:
         import core.config as cfg_mod
         original_path = cfg_mod.CONFIG_FILE
         test_path = tmp_path / ".env_existing"
-        test_path.write_text("LLM_PROVIDER=deepseek\nMAX_ITERATIONS=3\n", encoding="utf-8")
+        test_path.write_text(
+            "LLM_PROVIDER=deepseek\nMAX_ITERATIONS=3\n", encoding="utf-8",
+        )
         cfg_mod.CONFIG_FILE = str(test_path)
         try:
             from core.config import save_config
@@ -730,7 +748,9 @@ class TestWorkflowIntegration:
         from core.workflow import build_workflow
         app = build_workflow()
         nodes = list(app.get_graph().nodes.keys())
-        for node in ("worker", "monitor", "generate_antibody", "validate_antibody", "finalize"):
+        for node in (
+            "worker", "monitor", "generate_antibody", "validate_antibody", "finalize",
+        ):
             assert node in nodes, f"Missing node: {node}"
 
     def test_workflow_has_correct_edge_structure(self):
@@ -767,8 +787,8 @@ class TestLLMCache:
     """Tests for LLM lazy initialization cache keying."""
 
     def test_cache_key_includes_provider_and_model(self):
-        """_get_llm cache key must include provider+model so config changes take effect."""
-        from core.nodes import _get_llm, _llm_cache
+        """_get_llm cache key must include provider+model for changes to take effect."""
+        from core.nodes import _llm_cache
         _llm_cache.clear()
         # Keys by different config values should get separate instances
         # Can't call _get_llm directly (needs API key), so verify the keying logic
@@ -943,8 +963,8 @@ class TestConfigHotReload:
 
     def test_escalation_reads_cfg_at_call_time(self, tmp_path):
         """Escalation threshold is read at call time, not cached."""
-        from core.escalation import EscalationTracker
         import core.escalation as esc_mod
+        from core.escalation import EscalationTracker
 
         tracker = EscalationTracker()
         original_dir = esc_mod.ESCALATION_DIR
@@ -1033,7 +1053,11 @@ class TestConfigSaveLive:
         test_path.write_text("MAX_ITERATIONS=3\n", encoding="utf-8")
         cfg_mod.CONFIG_FILE = str(test_path)
 
+        had_key = "OPENAI_API_KEY" in os.environ
         try:
+            # Suppress API key warning during this test
+            if not had_key:
+                os.environ["OPENAI_API_KEY"] = "test-key"
             # Load from file first
             os.environ["MAX_ITERATIONS"] = "3"
             cfg_mod._validated = False
@@ -1050,6 +1074,8 @@ class TestConfigSaveLive:
             assert cfg_mod.get("MAX_ITERATIONS") == 10
         finally:
             os.environ["MAX_ITERATIONS"] = original_env
+            if not had_key:
+                del os.environ["OPENAI_API_KEY"]
             cfg_mod.CONFIG_FILE = original_path
 
 
@@ -1102,6 +1128,7 @@ class TestLogger:
     def test_logger_uses_call_time_level(self, monkeypatch):
         """setup_logger should read LOG_LEVEL at call time, not import time."""
         import logging
+
         from core.logger import setup_logger
         monkeypatch.setenv("LOG_LEVEL", "ERROR")
         logger = setup_logger("test_dynamic_level")

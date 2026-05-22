@@ -20,8 +20,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from core.config import get as cfg
+from core.config import validate_all
 from core.logger import setup_logger
-from core.config import get as cfg, validate_all
 from core.metrics import metrics
 
 logger = setup_logger("api")
@@ -32,14 +33,18 @@ try:
 except ImportError:
     print("fastapi/uvicorn not installed. Run: pip install fastapi uvicorn")
     # Provide no-op stubs so the module can be imported without crashing
-    def _noop_decorator(*a, **kw): return lambda f: f
-    FastAPI = lambda *a, **kw: type("MockApp", (), {
-        "get": _noop_decorator, "post": _noop_decorator,
-        "patch": _noop_decorator, "delete": _noop_decorator,
-    })()
-    HTTPException = type("HTTPException", (Exception,), {})
-    BaseModel = type("BaseModel", (), {"__init__": lambda s, **kw: None})
-    Field = lambda default=None, **kw: default
+    def _identity(f): return f
+    def _noop_decorator(*a, **kw): return _identity
+    def _make_mock_app(*a, **kw):
+        return type("MockApp", (), {
+            "get": _noop_decorator, "post": _noop_decorator,
+            "patch": _noop_decorator, "delete": _noop_decorator,
+        })()
+    FastAPI = _make_mock_app  # type: ignore[assignment,misc]
+    HTTPException = type("HTTPException", (Exception,), {})  # type: ignore[assignment,misc]
+    BaseModel = type("BaseModel", (), {"__init__": lambda s, **kw: None})  # type: ignore[assignment,misc]
+    def _default_field(default=None, **kw): return default
+    Field = _default_field
 
 app = FastAPI(
     title="Symbiotic Cognitive Immune System Agent API",
@@ -137,7 +142,7 @@ class ConfigUpdate(BaseModel):
 @app.patch("/config", tags=["System"])
 async def update_config(body: ConfigUpdate):
     """Update configuration values in .env file."""
-    from core.config import save_config, EDITABLE_FIELDS
+    from core.config import save_config
     try:
         warnings = save_config(body.updates)
         return {
@@ -216,7 +221,11 @@ async def list_demo():
 async def run_demo(name: str):
     """Run a specific demo query."""
     if name not in _demo_queries:
-        raise HTTPException(status_code=404, detail=f"Demo '{name}' not found. Available: {list(_demo_queries.keys())[:5]}...")
+        demos = list(_demo_queries.keys())[:5]
+        raise HTTPException(
+            status_code=404,
+            detail=f"Demo '{name}' not found. Available: {demos}...",
+        )
 
     from immune_agent import run_single_query
 

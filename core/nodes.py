@@ -1,17 +1,16 @@
 """核心智能体节点：主智能体、监察员T细胞、抗体生成器、沙箱验证器。"""
 
 import json
-import os
 import threading
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
-from core.state import ImmunologyState
-from core.memory import memory_db
-from core.logger import setup_logger
-from core.sandbox import validate_antibody
 from core.config import get as cfg
+from core.logger import setup_logger
+from core.memory import memory_db
+from core.sandbox import validate_antibody
+from core.state import ImmunologyState
 
 logger = setup_logger("nodes")
 
@@ -181,7 +180,7 @@ def main_worker_node(state: ImmunologyState) -> dict:
             f"[Fix Explanation]: {last_antibody['explanation']}\n"
         )
 
-    full_prompt = f"""You are a reasoning agent with self-diagnosis capabilities. Complete the user's task below.
+    full_prompt = f"""You are a reasoning agent. Complete the user's task below.
 
 User task: {query}
 {injected_context}
@@ -193,8 +192,9 @@ input validation, termination conditions, and resource constraints.
 **Step 2 — Self-Check (mandatory):**
 Analyze your own reasoning for these defect patterns with specific examples:
 
-1. **Infinite loop risk** — Does every loop/recursion have a guaranteed termination condition?
-   Examples: `while True` without break, recursion without base case, `for i in range(n)` where n unbounded
+1. **Infinite loop risk** — Does each loop/recursion have guaranteed termination?
+   Examples: `while True` without break, recursion without base case,
+   `for i in range(n)` with unbounded n
 2. **Logical contradiction** — Does any condition conflict with another?
    Examples: `x > 10 AND x < 5`, unreachable `elif` branches, contradictory preconditions
 3. **Missing base case** — Does recursion have an exit branch?
@@ -202,17 +202,17 @@ Analyze your own reasoning for these defect patterns with specific examples:
 4. **Resource safety** — Are file handles, network connections, or memory bounded?
    Examples: open() without close(), unbounded list growth in loop, no try/finally
 5. **Type/correctness** — Are types consistent? Does the logic solve the problem?
-   Examples: adding str + int, SQL injection via string concat, off-by-one in binary search
+   Examples: adding str+int, SQL injection via string concat, off-by-one in binary search
 6. **Security / injection** — Does code use dangerous patterns?
    Examples: exec/eval on untrusted input, shell injection via os.system, raw SQL concat
 7. **Unicode / encoding** — Are string operations encoding-aware?
    Examples: len() on multibyte chars, slicing UTF-8 strings by byte index
 
 **Step 3 — Output:**
-- If you detect ANY issue, start with: COGNITIVE_ANOMALY: <pattern_name> — <specific description>
+- If you detect ANY issue, use: COGNITIVE_ANOMALY: <pattern_name> - <specific description>
   Then show the problematic reasoning.
 - If everything is clean, provide your final solution directly.
-- For code solutions: always include at minimum a max-iteration guard or recursion depth limit.
+- For code solutions: include at least a max-iteration guard or recursion depth limit.
 - If historical antibodies are injected above, ensure they are correctly applied.
 """
 
@@ -221,7 +221,8 @@ Analyze your own reasoning for these defect patterns with specific examples:
 
     try:
         response = get_main_llm().invoke(full_prompt)
-        content = response.content if isinstance(response.content, str) else str(response.content)
+        raw = response.content
+        content = raw if isinstance(raw, str) else str(raw)
         content = content.strip()
     except Exception as e:
         logger.error("Worker LLM call failed: %s", e)
@@ -278,7 +279,8 @@ def monitor_node(state: ImmunologyState) -> dict:
     steps = state["task_steps"]
     query = state["user_query"]
 
-    prompt = f"""You are a T-Cell inspector in an AI immune system. Your role is to detect cognitive anomalies in the worker agent's output.
+    prompt = f"""You are a T-Cell inspector in an AI immune system.
+Your role is to detect cognitive anomalies in the worker agent's output.
 
 Analyze the worker agent's execution steps: {json.dumps(steps, ensure_ascii=False)}
 
@@ -311,18 +313,25 @@ Original user query: {query}
 
 Return ONLY a valid JSON object with exactly one of these formats:
 - Healthy: {{"status": "healthy", "confidence": "high"}}
-- Unhealthy: {{"status": "unhealthy", "reason": "<concise specific reason>", "severity": "high|medium|low"}}
+- Unhealthy: {{"status": "unhealthy", "reason": "<concise reason>",
+  "severity": "high|medium|low"}}
 
 Examples:
-- Healthy: {{"status": "healthy", "confidence": "high"}}
-- Infinite loop risk: {{"status": "unhealthy", "reason": "while True with no break condition and no termination guard", "severity": "high"}}
-- Contradiction: {{"status": "unhealthy", "reason": "if x > 10 and x < 5 is logically impossible — unreachable branch", "severity": "medium"}}
-- SQL injection: {{"status": "unhealthy", "reason": "user input concatenated directly into SQL query string", "severity": "high"}}
+- Infinite loop: {{"status": "unhealthy",
+  "reason": "while True without break nor termination guard",
+  "severity": "high"}}
+- Contradiction: {{"status": "unhealthy",
+  "reason": "if x > 10 and x < 5 is impossible -- unreachable branch",
+  "severity": "medium"}}
+- SQL injection: {{"status": "unhealthy",
+  "reason": "user input concatenated into SQL query",
+  "severity": "high"}}
 """
 
     try:
         response = get_monitor_llm().invoke(prompt)
-        content = response.content if isinstance(response.content, str) else str(response.content)
+        raw = response.content
+        content = raw if isinstance(raw, str) else str(raw)
         content = content.strip()
     except Exception as e:
         logger.error("Monitor LLM call failed: %s", e)
@@ -361,17 +370,17 @@ def generate_antibody_node(state: ImmunologyState) -> dict:
     anomaly = anomalies[-1] if anomalies else {"reason": "Unknown anomaly"}
     query = state["user_query"]
 
-    prompt = f"""The system has detected a cognitive anomaly: {anomaly.get('reason', 'Unknown')}
+    prompt = f"""Detected cognitive anomaly: {anomaly.get('reason', 'Unknown')}
 Severity: {anomaly.get('severity', 'medium')}
 User request: {query}
 
-Generate a Python code "antibody" — a self-contained patch that prevents this anomaly from recurring.
+Generate Python "antibody" code — a self-contained patch that prevents recurrence.
 
 **Antibody Requirements:**
 1. Code must be syntactically valid Python, ready to insert into the previous context.
 2. Must include a **termination guard** (max iterations, depth limit, or sentinel check).
 3. Must include inline comments explaining the guard logic.
-4. Explanation must describe: (a) what caused the anomaly, (b) how the antibody prevents it.
+4. Explanation must describe: (a) what caused the anomaly, (b) how antibody prevents it.
 
 **Output Format — Return ONLY valid JSON:**
 {{"code": "# antibody code here", "explanation": "why this works (2-3 sentences)"}}
@@ -385,12 +394,17 @@ Generate a Python code "antibody" — a self-contained patch that prevents this 
 
     try:
         response = get_antibody_llm().invoke(prompt)
-        content = response.content if isinstance(response.content, str) else str(response.content)
+        raw = response.content
+        content = raw if isinstance(raw, str) else str(raw)
         content = content.strip()
     except Exception as e:
         logger.error("Antibody LLM call failed: %s", e)
         patch = {
-            "code": "# Fallback guard: max iteration limit\nMAX_ITER = 100\ncounter = 0\nwhile counter < MAX_ITER:\n    counter += 1",
+            "code": (
+                "# Fallback guard: max iteration limit\n"
+                "MAX_ITER = 100\ncounter = 0\n"
+                "while counter < MAX_ITER:\n    counter += 1"
+            ),
             "explanation": "Fallback: added iteration guard after LLM error.",
         }
     else:

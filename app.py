@@ -2,7 +2,6 @@
 Streamlit Web UI for the Symbiotic Cognitive Immune System Agent.
 """
 
-import json
 import os
 import sys
 import time
@@ -10,6 +9,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 try:
@@ -18,8 +18,8 @@ except ImportError:
     print("Streamlit not installed. Run: pip install streamlit")
     sys.exit(1)
 
-from core.logger import setup_logger
 from core.config import get as cfg
+from core.logger import setup_logger
 from immune_agent import run_single_query
 
 logger = setup_logger("webui")
@@ -254,6 +254,36 @@ with st.sidebar:
     st.metric("Antibodies", mc)
     st.caption(f"Backend: {mb}")
 
+    # Session health card
+    st.markdown("---")
+    try:
+        from core.agent_session import get_session
+        sess = get_session()
+        s = sess.summary()
+        hs = s["health_score"]
+        if s["total_turns"] == 0:
+            st.caption("🛡️ Agent ready — run a query to start")
+        else:
+            health_color = "#22c55e" if hs >= 0.7 else ("#f59e0b" if hs >= 0.4 else "#ef4444")
+            st.markdown(f"""
+            <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:0.6rem;margin:0.5rem 0">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                    <span style="color:rgba(255,255,255,0.7);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px">Health</span>
+                    <span style="color:{health_color};font-weight:700;font-size:1rem">{hs:.0%}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:rgba(255,255,255,0.5)">
+                    <span>Turns: {s['total_turns']}</span>
+                    <span>Anomaly: {s['anomaly_rate']:.0%}</span>
+                    <span>Recoveries: {s['total_recoveries']}</span>
+                </div>
+                <div style="margin-top:4px;background:rgba(255,255,255,0.1);border-radius:4px;height:4px;overflow:hidden">
+                    <div style="background:{health_color};width:{hs * 100:.0f}%;height:100%;border-radius:4px;transition:width 0.3s"></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    except Exception:
+        st.caption("🛡️ Agent ready")
+
 # ---------------------------------------------------------------------------
 # Main: Hero + Tabs
 # ---------------------------------------------------------------------------
@@ -302,7 +332,7 @@ with tq:
         from core.memory import memory_db
         mbk = getattr(memory_db, "_backend", "unknown")
         mcnt = memory_db.count()
-    except:
+    except Exception:
         mbk, mcnt = "unknown", "N/A"
 
     # Status row
@@ -627,6 +657,38 @@ with tmet:
         if bd:
             st.markdown("**Anomaly Sources**"); st.bar_chart(bd)
         st.code(f"Session: {s['session_duration_seconds']:.0f}s · LLM: {s['total_llm_time_seconds']:.1f}s · Escalation: {s['escalation_rate']}% · Avg Abs: {s['avg_antibodies_per_query']:.2f}", language="text")
+
+    st.markdown("### Session Health")
+    try:
+        from core.agent_session import get_session
+        sess = get_session()
+        s = sess.summary()
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        with sc1: st.metric("Turns", s["total_turns"])
+        with sc2: st.metric("Health", f'{s["health_score"]:.0%}')
+        with sc3: st.metric("Anomaly", f'{s["anomaly_rate"]:.0%}')
+        with sc4: st.metric("Recoveries", s["total_recoveries"])
+
+        if s["total_turns"] > 0:
+            with st.expander("Recent Turns", expanded=False):
+                recent = sess.recent_turns(10)
+                try:
+                    import pandas as pd
+                    df = pd.DataFrame(recent)
+                    if not df.empty:
+                        df["time"] = pd.to_datetime(df["timestamp"], unit="s")
+                        df["time"] = df["time"].dt.strftime("%H:%M:%S")
+                        df["status"] = df["success"].map({True: "✅", False: "❌"})
+                        df["anomaly"] = df["had_anomaly"].map({True: "⚠️", False: ""})
+                        st.dataframe(
+                            df[["time", "status", "anomaly", "query"]],
+                            use_container_width=True,
+                            column_config={"query": st.column_config.TextColumn("Query", width="large")},
+                        )
+                except ImportError:
+                    st.caption("Install pandas for turn history table")
+    except Exception:
+        st.info("No session data yet.")
 
     cx1, cx2 = st.columns([1, 1])
     with cx1:

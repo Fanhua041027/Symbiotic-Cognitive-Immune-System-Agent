@@ -2,7 +2,7 @@
 
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -120,7 +120,10 @@ class TestQuery:
 
     def test_query_reports_error(self, client):
         """POST /query surfaces run_single_query errors."""
-        with patch("immune_agent.run_single_query", side_effect=RuntimeError("API failure")):
+        with patch(
+            "immune_agent.run_single_query",
+            side_effect=RuntimeError("API failure"),
+        ):
             resp = client.post("/query", json={"query": "hello"})
         assert resp.status_code == 500
         assert "API failure" in resp.json()["detail"]

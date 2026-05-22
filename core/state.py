@@ -1,6 +1,6 @@
 """State schema definitions for the immune agent workflow."""
 
-from typing import TypedDict, List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 
 
 class ImmunologyState(TypedDict):

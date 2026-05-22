@@ -10,12 +10,11 @@ Supports three validation levels:
 import ast
 import os
 import subprocess
-import sys
 import tempfile
 from typing import Optional
 
-from core.logger import setup_logger
 from core.config import get as cfg
+from core.logger import setup_logger
 
 logger = setup_logger("sandbox")
 

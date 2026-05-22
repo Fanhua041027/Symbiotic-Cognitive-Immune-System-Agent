@@ -9,7 +9,6 @@ Automates:
   - Directory structure verification
 """
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,24 +33,24 @@ def check_env():
     example_path = ROOT / ".env.example"
 
     if env_path.exists():
-        print(f"  [OK] .env already exists")
+        print("  [OK] .env already exists")
         return
 
     if not example_path.exists():
-        print(f"  [!!] .env.example not found!")
+        print("  [!!] .env.example not found!")
         return
 
     print("  [..] .env not found. Creating from .env.example...")
     content = example_path.read_text()
     env_path.write_text(content)
-    print(f"  [OK] Created .env — edit it to add your API keys")
+    print("  [OK] Created .env — edit it to add your API keys")
 
 
 def check_dirs():
     """Ensure required directories exist."""
-    for d in ["logs", "escalations", "benchmarks", "metrics"]:
+    for d in ["logs", "escalations", "benchmarks", "metrics", "sessions"]:
         (ROOT / d).mkdir(exist_ok=True)
-    print(f"  [OK] Directories ready")
+    print("  [OK] Directories ready")
 
 
 def get_optional_groups() -> list[str]:
@@ -93,7 +92,7 @@ def install_deps(groups: list[str]):
             cwd=str(ROOT),
             capture_output=True,
         )
-    print(f"  [OK] Dependencies installed")
+    print("  [OK] Dependencies installed")
 
 
 def run_health_check():
@@ -114,7 +113,7 @@ def run_health_check():
             failures += 1
 
     if failures == 0:
-        print(f"  [OK] All core modules import successfully")
+        print("  [OK] All core modules import successfully")
 
 
 def main():

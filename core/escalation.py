@@ -9,8 +9,8 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from core.logger import setup_logger
 from core.config import get as cfg
+from core.logger import setup_logger
 
 logger = setup_logger("escalation")
 

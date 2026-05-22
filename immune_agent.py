@@ -79,7 +79,7 @@ def run_single_query(
     # Reset per-query state to prevent cross-query bleeding
     escalation.reset()
 
-    config = {"recursion_limit": max(20, cfg("MAX_ITERATIONS", 5) * 4)}
+    config = {"recursion_limit": max(30, cfg("MAX_ITERATIONS", 5) * 6 + 6)}
     initial_state: ImmunologyState = {
         "user_query": query,
         "task_steps": [],

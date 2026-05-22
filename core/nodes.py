@@ -579,6 +579,7 @@ def validate_antibody_node(state: ImmunologyState) -> dict:
         return {
             "is_immune_active": True,
             "validation_status": "passed",
+            "anomalies": [],  # Clear anomalies after successful immune response
         }
 
     logger.warning("Antibody validation failed: %s", reason or "keyword check failed")

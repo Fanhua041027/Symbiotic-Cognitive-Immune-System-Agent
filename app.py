@@ -301,11 +301,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if "query_history" not in st.session_state:
-    st.session_state.query_history = []
+    # Restore query history from session persistence
+    try:
+        from core.agent_session import get_session
+        sess = get_session()
+        st.session_state.query_history = sess.get_history()
+    except Exception:
+        st.session_state.query_history = []
 
 # Must be defined before tabs that call it
 TRACE_STYLES = {
     "enter:worker": ("Worker", "#1a73e8"),
+    "enter:consistency_check": ("Consistency", "#f59e0b"),
     "enter:monitor": ("Monitor", "#7c3aed"),
     "enter:generate_antibody": ("Antibody Gen", "#0d9488"),
     "enter:validate_antibody": ("Validator", "#6b7280"),

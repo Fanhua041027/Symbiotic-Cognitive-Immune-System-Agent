@@ -64,7 +64,7 @@ class AgentSession:
     # -- Turn recording -----------------------------------------------------
 
     def record_turn(self, result: dict) -> None:
-        """Record a single query execution result."""
+        """Record a single query execution result and auto-save to disk."""
         turn = TurnRecord(result)
         with self._lock:
             self._turns.append(turn)
@@ -80,6 +80,11 @@ class AgentSession:
                 })
             elif not turn.success:
                 self._consecutive_failures += 1
+        # Auto-save after each turn
+        try:
+            self.save()
+        except Exception as e:
+            logger.debug("Auto-save failed: %s", e)
 
     def record_recovery_event(self, event_type: str, detail: str) -> None:
         """Record a manual recovery action."""
@@ -131,6 +136,22 @@ class AgentSession:
         """Return the most recent N turns."""
         with self._lock:
             return [t.to_dict() for t in list(self._turns)[-n:]]
+
+    def get_history(self) -> list[dict]:
+        """Return query history in web UI compatible format."""
+        with self._lock:
+            return [
+                {
+                    "query": t.query,
+                    "duration": f"{t.duration:.1f}s",
+                    "anomalies": t.anomaly_count,
+                    "antibodies": t.antibody_count,
+                    "immune_active": t.immune_activated,
+                    "success": t.success,
+                    "timestamp": t.timestamp,
+                }
+                for t in self._turns
+            ]
 
     # -- Persistence --------------------------------------------------------
 
@@ -209,12 +230,31 @@ def _session_max_turns() -> int:
     return int(cfg("SESSION_MAX_TURNS", 500))
 
 
+def _latest_saved_session_id() -> str | None:
+    """Find the most recent saved session ID from disk."""
+    sessions = AgentSession.list_sessions()
+    if sessions:
+        return sessions[0]["session_id"]
+    return None
+
+
 def get_session() -> AgentSession:
-    """Get or create the global active session."""
+    """Get or create the global active session. Restores from disk if available."""
     global _active_session
     with _active_session_lock:
-        if _active_session is None:
-            _active_session = AgentSession(max_turns=_session_max_turns())
+        if _active_session is not None:
+            return _active_session
+        # Try restoring the most recent saved session
+        latest_id = _latest_saved_session_id()
+        if latest_id:
+            restored = AgentSession.load(latest_id)
+            if restored is not None:
+                _active_session = restored
+                logger.info("Restored session %s (%d turns, %.0fs uptime)",
+                            latest_id, len(restored._turns),
+                            time.time() - restored._start_time)
+                return _active_session
+        _active_session = AgentSession(max_turns=_session_max_turns())
         return _active_session
 
 

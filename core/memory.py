@@ -6,6 +6,13 @@ from typing import Dict, Optional
 
 from core.logger import setup_logger
 
+# Attempt local ONNX embedding before ChromaDB default
+try:
+    from core.embeddings import LocalOnnxEmbeddingFunction
+    HAS_LOCAL_EMBEDDING = True
+except ImportError:
+    HAS_LOCAL_EMBEDDING = False
+
 logger = setup_logger("immune_db")
 
 DB_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".immune_db")
@@ -130,12 +137,27 @@ class ImmunologyMemory:
     def __init__(self, collection_name: str = "antibodies"):
         if HAS_CHROMADB:
             try:
+                embedding_fcn = None
+                if HAS_LOCAL_EMBEDDING:
+                    try:
+                        embedding_fcn = LocalOnnxEmbeddingFunction()
+                        logger.info("Using local ONNX embedding function")
+                    except Exception as e:
+                        logger.warning(
+                            "Local ONNX embedding unavailable (%s), using chromadb default", e
+                        )
+
                 os.makedirs(DB_DIR, exist_ok=True)
                 self._backend = "chromadb"
                 self.client = chromadb.PersistentClient(
                     path=DB_DIR, settings=ChromaSettings(anonymized_telemetry=False)
                 )
-                self.collection = self.client.get_or_create_collection(collection_name)
+                coll_kwargs: dict = {}
+                if embedding_fcn is not None:
+                    coll_kwargs["embedding_function"] = embedding_fcn
+                self.collection = self.client.get_or_create_collection(
+                    collection_name, **coll_kwargs
+                )
                 logger.info("Immune memory initialized (chromadb, path=%s)", DB_DIR)
                 return
             except Exception as e:

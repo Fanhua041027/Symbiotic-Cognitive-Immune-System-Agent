@@ -5,6 +5,8 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -762,7 +764,8 @@ class TestWorkflowIntegration:
         edge_pairs = {(e[0], e[1]) for e in edges}
         required = [
             ("__start__", "worker"),
-            ("worker", "monitor"),
+            ("worker", "consistency_check"),
+            ("consistency_check", "monitor"),
             ("generate_antibody", "validate_antibody"),
             ("validate_antibody", "worker"),
             ("finalize", "__end__"),
@@ -1073,7 +1076,10 @@ class TestConfigSaveLive:
             # cfg should reflect new value
             assert cfg_mod.get("MAX_ITERATIONS") == 10
         finally:
-            os.environ["MAX_ITERATIONS"] = original_env
+            if original_env:
+                os.environ["MAX_ITERATIONS"] = original_env
+            else:
+                os.environ.pop("MAX_ITERATIONS", None)
             if not had_key:
                 del os.environ["OPENAI_API_KEY"]
             cfg_mod.CONFIG_FILE = original_path
@@ -1147,6 +1153,11 @@ class TestConfigValidateAllWarnings:
 
         try:
             # Save with a provider that requires additional keys
+            # Clear env keys that may have been set by previous tests
+            os.environ.pop("DEEPSEEK_API_KEY", None)
+            os.environ.pop("MAX_ITERATIONS", None)
+            cfg_mod._values.clear()
+            cfg_mod._validated = False
             warnings = cfg_mod.save_config({"LLM_PROVIDER": "deepseek"})
             # Should contain warnings about missing DEEPSEEK_API_KEY
             assert any("MISSING" in w for w in warnings), (
@@ -1554,3 +1565,130 @@ class TestImmuneAgentModule:
         show_stats()
         captured = capsys.readouterr()
         assert "Configuration" in captured.out or "Provider" in captured.out
+
+
+class TestLocalOnnxEmbedding:
+    """Tests for the local ONNX embedding function."""
+
+    def test_embedding_function_name(self):
+        """name() returns expected string."""
+        from core.embeddings import LocalOnnxEmbeddingFunction
+        name = LocalOnnxEmbeddingFunction.name()
+        assert isinstance(name, str)
+        assert len(name) > 0
+
+    def test_embedding_function_call(self):
+        """__call__ returns normalized embeddings."""
+        from core.embeddings import LocalOnnxEmbeddingFunction
+        ef = LocalOnnxEmbeddingFunction()
+        result = ef(["hello world", "test"])
+        assert len(result) == 2
+        assert len(result[0]) == 384
+        # Should be L2 normalized (unit vectors)
+        import math
+        norm = math.sqrt(sum(v * v for v in result[0]))
+        assert abs(norm - 1.0) < 1e-4
+
+    def test_embedding_similar_texts(self):
+        """Similar texts produce similar embeddings (cosine ~1)."""
+        from core.embeddings import LocalOnnxEmbeddingFunction
+        ef = LocalOnnxEmbeddingFunction()
+        a = ef(["how to sort a list in python"])[0]
+        b = ef(["sorting lists with python"])[0]
+        dot = sum(x * y for x, y in zip(a, b))
+        assert dot > 0.5, f"Similar texts should have high cosine: {dot}"
+
+    def test_embedding_dissimilar_texts(self):
+        """Dissimilar texts produce less similar embeddings."""
+        from core.embeddings import LocalOnnxEmbeddingFunction
+        ef = LocalOnnxEmbeddingFunction()
+        a = ef(["how to sort a list in python"])[0]
+        b = ef(["the weather is nice today"])[0]
+        dot = sum(x * y for x, y in zip(a, b))
+        assert dot < 0.8, f"Dissimilar texts should have lower cosine: {dot}"
+
+    def test_is_legacy_false(self):
+        """is_legacy() returns False."""
+        from core.embeddings import LocalOnnxEmbeddingFunction
+        ef = LocalOnnxEmbeddingFunction()
+        assert not ef.is_legacy()
+
+    def test_get_config(self):
+        """get_config returns expected dict."""
+        from core.embeddings import LocalOnnxEmbeddingFunction
+        cfg = LocalOnnxEmbeddingFunction().get_config()
+        assert "model_name" in cfg
+
+
+class TestMemoryPersistence:
+    """Tests for immune memory persistence with local ONNX embedding."""
+
+    @pytest.fixture(autouse=True)
+    def _unique_db(self, tmp_path):
+        """Patch DB_DIR to a unique temp path per test."""
+        import core.memory as mem_mod
+        self._orig_dir = mem_mod.DB_DIR
+        mem_mod.DB_DIR = str(tmp_path / ".immune_db")
+        yield
+        mem_mod.DB_DIR = self._orig_dir
+
+    def test_memory_init_chromadb_backend(self):
+        """Memory initializes with chromadb backend when local ONNX available."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        assert m._backend == "chromadb"
+        m.clear_all()
+
+    def test_memory_store_and_count(self):
+        """Store and count antibodies."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        stored = m.store_antibody("loop without break", "while True: pass", "test")
+        assert stored
+        assert m.count() == 1
+        m.clear_all()
+
+    def test_memory_store_and_search(self):
+        """Store and search returns recent antibody."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        m.store_antibody("infinite loop without break", "while True: pass", "detected infinite loop")
+        m.store_antibody("sql injection risk", "cursor.execute(f'SELECT * FROM users WHERE id = {uid}')", "detected sql injection")
+        result = m.search_antibody("infinite loop")
+        assert result is not None, "Should find the loop antibody"
+        m.clear_all()
+
+    def test_memory_dedup(self):
+        """Duplicate antibodies are skipped by token similarity."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        m.store_antibody("pattern X", "code X", "context X")
+        dup = m.store_antibody("pattern X", "code X", "context X")
+        assert not dup, "Duplicate should be skipped"
+        assert m.count() == 1
+        m.clear_all()
+
+    def test_memory_list_and_delete(self):
+        """List and delete antibodies."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        m.store_antibody("pattern A", "code A", "context A")
+        m.store_antibody("pattern B", "code B", "context B")
+        lst = m.list_antibodies()
+        assert len(lst) == 2
+        deleted = m.delete_antibody(lst[0]["id"])
+        assert deleted
+        assert m.count() == 1
+        m.clear_all()
+
+    def test_memory_clear_all(self):
+        """clear_all removes all antibodies."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        m.store_antibody("pattern A", "code A", "context A")
+        m.store_antibody("pattern B", "code B", "context B")
+        assert m.count() == 2
+        cleared = m.clear_all()
+        assert cleared == 2
+        assert m.count() == 0
+

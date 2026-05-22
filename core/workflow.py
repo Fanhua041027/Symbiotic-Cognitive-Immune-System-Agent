@@ -11,6 +11,7 @@ from core.config import get as cfg
 from core.escalation import escalation
 from core.logger import setup_logger
 from core.nodes import (
+    consistency_check_node,
     generate_antibody_node,
     main_worker_node,
     monitor_node,
@@ -30,6 +31,7 @@ logger = setup_logger("workflow")
 # ---------------------------------------------------------------------------
 _TRACE_LABELS = {
     "worker": "Worker",
+    "consistency_check": "Consistency Check",
     "monitor": "Monitor T-Cell",
     "generate_antibody": "Antibody Generator",
     "validate_antibody": "Sandbox Validator",
@@ -138,6 +140,9 @@ def build_workflow() -> StateGraph:
 
     # 注册节点 (用 trace wrapper 包装)
     workflow.add_node("worker", _with_trace("worker", main_worker_node))
+    workflow.add_node(
+        "consistency_check", _with_trace("consistency_check", consistency_check_node)
+    )
     workflow.add_node("monitor", _with_trace("monitor", monitor_node))
     workflow.add_node(
         "generate_antibody", _with_trace("generate_antibody", generate_antibody_node)
@@ -147,11 +152,10 @@ def build_workflow() -> StateGraph:
     )
     workflow.add_node("finalize", _with_trace("finalize", finalize_node))
 
-    # 入口 → 主智能体
+    # 入口 → 主智能体 → 一致性检查 → 监察员
     workflow.add_edge(START, "worker")
-
-    # 主智能体 → 监察员
-    workflow.add_edge("worker", "monitor")
+    workflow.add_edge("worker", "consistency_check")
+    workflow.add_edge("consistency_check", "monitor")
 
     # 监察员 → 条件路由
     workflow.add_conditional_edges(

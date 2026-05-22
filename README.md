@@ -48,7 +48,7 @@
 | **自修复** | LLM 驱动抗体生成，自动产生带终止守卫的修复补丁 |
 | **多级沙箱** | simulated（启发式关键词）/ ast（Python AST 静态分析）/ docker（容器执行） |
 | **持久记忆** | ChromaDB 持久化存储，自动 InMemoryStore 回退，跨会话复用抗体 |
-| **抗体去重** | Jaccard Token 相似度 >= 0.7 自动跳过，防内存膨胀 |
+| **会话管理** | 长时间运行的自愈 Session，全局访问 + 健康评分 + 恢复追踪 |
 | **执行追踪** | 完整 workflow_trace 记录，Web UI 可视化彩色执行路径 |
 | **多 Provider** | 支持 OpenAI / DeepSeek / 自定义 OpenAI-compatible 端点 |
 | **Web UI** | 6 标签页 Streamlit 界面：查询 / 历史 / 记忆 / 流程图 / 基准测试 / 指标 |
@@ -120,7 +120,7 @@ python api.py
 ### 4. 运行测试
 
 ```bash
-# 148+ 个单元测试（无需 API Key）
+# 182 个单元测试（无需 API Key）
 python -m pytest tests/ -v --tb=short
 
 # 12 个对抗性测试（需要 API Key）
@@ -152,6 +152,7 @@ docker compose run --rm immune-agent
 ├── CHANGELOG.md             # 版本历史
 ├── SECURITY.md              # 安全策略
 │
+├── .pre-commit-config.yaml  # 预提交钩子（ruff / mypy / 格式检查）
 ├── .github/
 │   ├── workflows/ci.yml     # CI 流水线
 │   ├── dependabot.yml       # 自动依赖更新
@@ -167,10 +168,12 @@ docker compose run --rm immune-agent
 │   ├── sandbox.py           # 多级沙箱验证（simulated / ast / docker / e2b）
 │   ├── escalation.py        # 人类告警升级系统
 │   ├── metrics.py           # 指标追踪（成功率 / 延迟 / 异常分析）
+│   ├── agent_session.py     # Session 管理器（健康评分 / 恢复追踪 / 全局访问）
 │   └── viz.py               # 工作流可视化
 │
 ├── tests/
-│   ├── test_core.py         # 148+ 个单元测试
+│   ├── test_core.py         # 单元测试（config / logger / memory / nodes / sandbox / ...）
+│   ├── test_agent_session.py # Session 管理器单元测试（34 项）
 │   ├── test_api.py          # FastAPI 端点集成测试
 │   └── adversarial.py       # 12 个对抗性测试用例
 │
@@ -178,7 +181,8 @@ docker compose run --rm immune-agent
 ├── .immune_db/              # ChromaDB 持久化数据（自动创建）
 ├── escalations/             # 告警升级报告（自动创建）
 ├── benchmarks/              # 对抗测试报告（自动创建）
-└── metrics/                 # 指标报告（自动创建）
+├── metrics/                 # 指标报告（自动创建）
+└── sessions/                # Session 快照（自动创建）
 ```
 
 ## Web UI
@@ -192,7 +196,9 @@ docker compose run --rm immune-agent
 | **Memory** | 抗体浏览器，支持搜索、删除、清空 |
 | **Workflow Graph** | Mermaid 流程图 + ASCII 架构图 |
 | **Benchmark** | 一键运行 12 个对抗测试，实时进度和统计 |
-| **Metrics** | 成功率 / 异常率 / P95 延迟 / 异常来源分析 / 报告导出 |
+| **Metrics** | 成功率 / 异常率 / P95 延迟 / 异常来源分析 / Session 健康面板 / 报告导出 |
+
+侧边栏包含 **健康仪表盘**（实时 Session 健康评分、轮次计数、异常率、恢复次数、进度条），可勾选 **Auto-refresh (5s)** 实现自动刷新。
 
 ## REST API
 
@@ -222,6 +228,8 @@ docker compose run --rm immune-agent
 | `python immune_agent.py -s` | 查看系统统计 |
 | `python immune_agent.py -q "..." -j` | JSON 格式输出 |
 | `python immune_agent.py -q "..." -t 30` | 30 秒超时查询 |
+| `python immune_agent.py -d` | 守护模式：持续自愈 Agent |
+| `python immune_agent.py -d --heartbeat 10` | 守护模式，10 秒心跳间隔 |
 | `streamlit run app.py` | 启动 Web UI |
 | `python api.py` | 启动 REST API |
 | `python setup_project.py` | 初始化向导 |
@@ -243,6 +251,7 @@ docker compose run --rm immune-agent
 | `SANDBOX_MODE` | `simulated` | 沙箱模式: simulated / ast / docker |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `ESCALATION_THRESHOLD` | `3` | 连续失败告警阈值 |
+| `SESSION_MAX_TURNS` | `500` | Session 最大记录轮数 |
 
 ## 多 Provider 配置
 

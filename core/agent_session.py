@@ -12,6 +12,7 @@ import uuid
 from collections import deque
 from typing import Any
 
+from core.config import get as cfg
 from core.logger import setup_logger
 
 logger = setup_logger("session")
@@ -203,12 +204,17 @@ _active_session: AgentSession | None = None
 _active_session_lock = threading.Lock()
 
 
+def _session_max_turns() -> int:
+    """Read SESSION_MAX_TURNS from config."""
+    return int(cfg("SESSION_MAX_TURNS", 500))
+
+
 def get_session() -> AgentSession:
     """Get or create the global active session."""
     global _active_session
     with _active_session_lock:
         if _active_session is None:
-            _active_session = AgentSession()
+            _active_session = AgentSession(max_turns=_session_max_turns())
         return _active_session
 
 
@@ -216,5 +222,5 @@ def reset_session() -> AgentSession:
     """Reset the global session (start fresh)."""
     global _active_session
     with _active_session_lock:
-        _active_session = AgentSession()
+        _active_session = AgentSession(max_turns=_session_max_turns())
     return _active_session

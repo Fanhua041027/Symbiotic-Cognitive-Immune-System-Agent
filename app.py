@@ -284,6 +284,10 @@ with st.sidebar:
     except Exception:
         st.caption("🛡️ Agent ready")
 
+    # Auto-refresh toggle
+    st.markdown("---")
+    auto_refresh = st.checkbox("Auto-refresh (5s)", value=False, help="Periodically refresh the dashboard")
+
 # ---------------------------------------------------------------------------
 # Main: Hero + Tabs
 # ---------------------------------------------------------------------------
@@ -696,3 +700,8 @@ with tmet:
             p = mt.save_report(); st.success(f"Saved: {p}")
     with cx2:
         if st.button("Reset", use_container_width=True): st.rerun()
+
+# Auto-refresh loop
+if auto_refresh:
+    time.sleep(5)
+    st.rerun()

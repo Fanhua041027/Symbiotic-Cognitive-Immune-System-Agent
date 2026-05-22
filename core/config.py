@@ -37,6 +37,7 @@ _CONFIG_DEFS: list[tuple[str, Any, type, bool, str]] = [
     ("SANDBOX_MODE", "simulated", str, False, "Sandbox mode: simulated/ast/docker/e2b"),
     ("LOG_LEVEL", "INFO", str, False, "Log level: DEBUG/INFO/WARNING/ERROR"),
     ("ESCALATION_THRESHOLD", 3, int, False, "Escalation failure threshold"),
+    ("SESSION_MAX_TURNS", 500, int, False, "Max session turns before rotation"),
 ]
 
 # Cache

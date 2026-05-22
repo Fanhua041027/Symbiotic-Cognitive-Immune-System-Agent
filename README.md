@@ -120,7 +120,7 @@ python api.py
 ### 4. 运行测试
 
 ```bash
-# 53 个单元测试（无需 API Key）
+# 148+ 个单元测试（无需 API Key）
 python -m pytest tests/ -v --tb=short
 
 # 12 个对抗性测试（需要 API Key）
@@ -147,6 +147,15 @@ docker compose run --rm immune-agent
 ├── pyproject.toml           # 项目元数据 + 可选依赖组
 ├── requirements.txt         # 核心依赖
 ├── .env.example             # 环境变量模板
+├── LICENSE                  # MIT 许可证
+├── CONTRIBUTING.md          # 贡献指南
+├── CHANGELOG.md             # 版本历史
+├── SECURITY.md              # 安全策略
+│
+├── .github/
+│   ├── workflows/ci.yml     # CI 流水线
+│   ├── dependabot.yml       # 自动依赖更新
+│   └── ISSUE_TEMPLATE/      # Issue 模板（bug / feature）
 │
 ├── core/
 │   ├── config.py            # 配置验证与集中管理 + .env 持久化
@@ -155,13 +164,14 @@ docker compose run --rm immune-agent
 │   ├── memory.py            # 免疫记忆（ChromaDB / 内存回退 + 去重）
 │   ├── nodes.py             # 四个核心智能体节点 + git 自动备份
 │   ├── workflow.py          # LangGraph 工作流 + 执行轨迹
-│   ├── sandbox.py           # 多级沙箱验证（simulated / ast / docker）
+│   ├── sandbox.py           # 多级沙箱验证（simulated / ast / docker / e2b）
 │   ├── escalation.py        # 人类告警升级系统
 │   ├── metrics.py           # 指标追踪（成功率 / 延迟 / 异常分析）
 │   └── viz.py               # 工作流可视化
 │
 ├── tests/
-│   ├── test_core.py         # 53 个单元测试
+│   ├── test_core.py         # 148+ 个单元测试
+│   ├── test_api.py          # FastAPI 端点集成测试
 │   └── adversarial.py       # 12 个对抗性测试用例
 │
 ├── logs/                    # 运行日志（自动创建）

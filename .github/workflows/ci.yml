@@ -30,11 +30,11 @@ jobs:
       - name: Check imports (structural)
         run: |
           python -c "
-import ast, sys
-for f in ['core/state.py','core/logger.py','core/config.py',
-          'core/sandbox.py','core/escalation.py']:
-    ast.parse(open(f, encoding='utf-8').read())
-print('All AST checks passed')
+          import ast, sys
+          for f in ['core/state.py','core/logger.py','core/config.py',
+                    'core/sandbox.py','core/escalation.py']:
+              ast.parse(open(f, encoding='utf-8').read())
+          print('All AST checks passed')
           "
 
   test:
@@ -63,11 +63,11 @@ print('All AST checks passed')
       - name: Verify container starts
         run: |
           docker run --rm immune-agent python -c "
-import sys; sys.path.insert(0, '.')
-from core.state import ImmunologyState
-from core.logger import setup_logger
-from core.config import validate_all
-from core.memory import memory_db
-print('Immune memory: %d antibodies' % memory_db.count())
-print('Container OK')
+          import sys; sys.path.insert(0, '.')
+          from core.state import ImmunologyState
+          from core.logger import setup_logger
+          from core.config import validate_all
+          from core.memory import memory_db
+          print('Immune memory: %d antibodies' % memory_db.count())
+          print('Container OK')
           "

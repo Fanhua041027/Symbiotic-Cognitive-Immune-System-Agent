@@ -180,10 +180,34 @@ def main_worker_node(state: ImmunologyState) -> dict:
             f"[Fix Explanation]: {last_antibody['explanation']}\n"
         )
 
-    full_prompt = f"""You are a reasoning agent. Complete the user's task below.
+    # When session/historical antibodies are present, the Worker should apply
+    # the fix and produce clean output — NOT re-trigger anomaly detection.
+    has_fix = bool(injected_context.strip())
+
+    if has_fix:
+        full_prompt = f"""You are a reasoning agent. Complete the user's task below.
 
 User task: {query}
 {injected_context}
+
+**Critical instruction: A previous anomaly was detected and a fix has been applied above.**
+Your job now is to PRODUCE CORRECT OUTPUT — not to re-detect the same issue.
+
+**Step 1 — Apply the fix:**
+- Incorporate the [Historical Memory] and/or [Session Fix Applied] code directly into your solution.
+- Make sure the termination guards, preconditions, and safety checks from the fix are present.
+- The fix IS your solution — extend it to fully answer the user's request while keeping the guards.
+
+**Step 2 — Final output:**
+- Produce a complete, working solution that includes the fix.
+- Do NOT report COGNITIVE_ANOMALY — the anomaly has already been handled.
+- If you detect a DIFFERENT issue that the existing fix doesn't cover, fix it silently in your output.
+- Your output will be used as the final answer.
+"""
+    else:
+        full_prompt = f"""You are a reasoning agent. Complete the user's task below.
+
+User task: {query}
 
 **Step 1 — Reason step by step:**
 Before writing any code, think through the problem. Consider edge cases,
@@ -226,7 +250,6 @@ For EACH category, answer YES or NO with specific evidence from YOUR reasoning:
   Then show the problematic reasoning.
 - If everything is clean, provide your final solution directly.
 - For code solutions: include at least a max-iteration guard or recursion depth limit.
-- If historical antibodies are injected above, ensure they are correctly applied.
 """
 
     # 自增迭代计数

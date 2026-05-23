@@ -198,11 +198,12 @@ Your job now is to PRODUCE CORRECT OUTPUT — not to re-detect the same issue.
 - Make sure the termination guards, preconditions, and safety checks from the fix are present.
 - The fix IS your solution — extend it to fully answer the user's request while keeping the guards.
 
-**Step 2 — Final output:**
-- Produce a complete, working solution that includes the fix.
-- Do NOT report COGNITIVE_ANOMALY — the anomaly has already been handled.
-- If you detect a DIFFERENT issue that the existing fix doesn't cover, fix it silently in your output.
-- Your output will be used as the final answer.
+**Step 2 — Final output — WRITE THE ACTUAL ANSWER:**
+- Your output MUST be the final, complete answer to the user's task with the fix incorporated.
+- DO NOT output "COGNITIVE_ANOMALY:" — the anomaly has already been handled.
+- DO NOT refuse to answer or suggest escalation — just produce the fixed solution.
+- If you notice a DIFFERENT issue the existing fix doesn't cover, fix it silently in your output.
+- Your output goes directly to the user as the final answer.
 """
     else:
         full_prompt = f"""You are a reasoning agent. Complete the user's task below.
@@ -311,10 +312,14 @@ For EACH category, answer YES or NO with specific evidence from YOUR reasoning:
 def consistency_check_node(state: ImmunologyState) -> dict:
     """
     一致性检查：分析 Worker 的输出是否与原始查询和基本事实一致。
-    专门捕获 Worker 自检遗漏的模式。
+    如果已生成抗体，则优先验证修复是否正确应用。
     """
     steps = state.get("task_steps", [])
     query = state["user_query"]
+    antibodies = state.get("antibodies", [])
+    validation_status = state.get("validation_status")
+    fix_applied = bool(antibodies) and validation_status == "passed"
+
     worker_output = ""
     for step in steps:
         content = step.get("content", "")
@@ -326,6 +331,17 @@ def consistency_check_node(state: ImmunologyState) -> dict:
         existing = state.get("anomalies") or []
         return {"anomalies": existing}
 
+    fix_context = ""
+    if fix_applied:
+        fix_context = (
+            "\n\n**A fix has already been applied by the immune system.**\n"
+            f"Applied fix code: {antibodies[-1].get('code', '')[:300]}\n"
+            f"Fix explanation: {antibodies[-1].get('explanation', '')[:200]}\n"
+            "Your job is to verify the fix was CORRECTLY applied.\n"
+            "Do NOT re-flag the same issue that was already fixed.\n"
+            "Only flag a NEW issue that is completely different from what was already addressed.\n"
+        )
+
     prompt = f"""You are a consistency validator for an AI immune system.
 Analyze the worker agent's output for issues the worker may have missed.
 
@@ -333,7 +349,7 @@ Original query: {query}
 
 Worker output:
 {worker_output[:2000]}
-
+{fix_context}
 **Check ALL of these patterns:**
 
 1. **Impossible logical conditions** — Does the code have AND/OR conditions that can never be true?
@@ -399,9 +415,25 @@ Return ONLY valid JSON:
 def monitor_node(state: ImmunologyState) -> dict:
     """
     监察员：只读分析主智能体的执行步骤，判断系统是否健康。
+    如果已有验证通过的抗体，则优先验证修复效果而非查找新问题。
     """
     steps = state["task_steps"]
     query = state["user_query"]
+    antibodies = state.get("antibodies", [])
+    validation_status = state.get("validation_status")
+    fix_applied = bool(antibodies) and validation_status == "passed"
+
+    fix_context = ""
+    if fix_applied:
+        fix_context = (
+            "\n\n**IMPORTANT: An immune fix has already been applied and validated.**\n"
+            f"Applied code: {antibodies[-1].get('code', '')[:300]}\n"
+            f"Explanation: {antibodies[-1].get('explanation', '')[:200]}\n"
+            "Your job is to verify the fix was correctly incorporated.\n"
+            "DO NOT flag the same pattern that the fix addresses.\n"
+            "Only report a NEW anomaly if it is a completely different category.\n"
+            "If the fix is properly applied, return healthy.\n"
+        )
 
     prompt = f"""You are a T-Cell inspector in an AI immune system.
 Your role is to detect cognitive anomalies in the worker agent's output.
@@ -409,7 +441,7 @@ Your role is to detect cognitive anomalies in the worker agent's output.
 Analyze the worker agent's execution steps: {json.dumps(steps, ensure_ascii=False)}
 
 Original user query: {query}
-
+{fix_context}
 **Inspection Checklist (check ALL categories — be aggressive):**
 
 1. **Loop/Recursion safety** — Is there a guaranteed termination condition?

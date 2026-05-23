@@ -8,6 +8,7 @@ services:
       - ./.immune_db:/app/.immune_db
       - ./logs:/app/logs
       - ./escalations:/app/escalations
+      - ~/.cache/chroma:/home/agent/.cache/chroma
     command: python immune_agent.py
 
   immune-agent-interactive:
@@ -19,6 +20,7 @@ services:
       - ./.immune_db:/app/.immune_db
       - ./logs:/app/logs
       - ./escalations:/app/escalations
+      - ~/.cache/chroma:/home/agent/.cache/chroma
     stdin_open: true
     tty: true
     command: python immune_agent.py --interactive

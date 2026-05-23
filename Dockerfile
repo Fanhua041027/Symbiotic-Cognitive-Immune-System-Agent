@@ -3,8 +3,8 @@ FROM python:3.11-slim AS builder
 WORKDIR /app
 COPY requirements.txt .
 
-# Install deps into user site-packages for easy copy to runtime stage
-RUN pip install --user --no-cache-dir -r requirements.txt chromadb
+# Install deps globally (not --user) so runtime stage can use them directly
+RUN pip install --no-cache-dir -r requirements.txt chromadb
 
 # ------------------------------------------------------------------ # Runtime stage
 FROM python:3.11-slim
@@ -12,9 +12,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Copy pre-installed packages from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH \
-    PYTHONDONTWRITEBYTECODE=1 \
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 # Copy application code

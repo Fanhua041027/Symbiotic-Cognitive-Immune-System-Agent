@@ -200,7 +200,7 @@ with st.sidebar:
     st.markdown('<div style="text-align:center;padding:0.5rem 0 1rem 0"><span style="font-size:2rem">🛡️</span><h2 style="color:white;margin:0.3rem 0 0 0">Immune Agent</h2><p style="color:rgba(255,255,255,0.4);font-size:0.75rem;margin:0">Multi-Agent Defense Framework</p></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
-    st.markdown('<label>Provider</label>', unsafe_allow_html=True)
+    st.markdown("<label>Provider</label>", unsafe_allow_html=True)
     providers = ["openai", "deepseek", "custom"]
     current = cfg("LLM_PROVIDER", "openai")
     provider = st.selectbox("provider", options=providers, index=providers.index(current) if current in providers else 0, label_visibility="collapsed")
@@ -208,19 +208,19 @@ with st.sidebar:
     sandbox_modes = ["simulated", "ast", "docker", "e2b"]
     cur_sb = cfg("SANDBOX_MODE", "simulated")
     sandbox_mode = st.selectbox("sandbox", options=sandbox_modes, index=sandbox_modes.index(cur_sb) if cur_sb in sandbox_modes else 0, label_visibility="collapsed")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
-    st.markdown('<label>Model</label>', unsafe_allow_html=True)
+    st.markdown("<label>Model</label>", unsafe_allow_html=True)
     worker_model = st.text_input("worker", value=cfg("MAIN_LLM_MODEL", "gpt-4o"), label_visibility="collapsed")
     monitor_model = st.text_input("monitor", value=cfg("MONITOR_LLM_MODEL", "gpt-4o-mini"), label_visibility="collapsed")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
-    st.markdown('<label>Limits</label>', unsafe_allow_html=True)
+    st.markdown("<label>Limits</label>", unsafe_allow_html=True)
     max_iter = st.slider("Max Iterations", 1, 20, value=cfg("MAX_ITERATIONS", 5), label_visibility="collapsed")
     temperature = st.slider("Temperature", 0.0, 2.0, value=cfg("LLM_TEMPERATURE", 0.7), step=0.1, label_visibility="collapsed")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     save_btn = st.button("Save Config", type="primary", use_container_width=True)
     if save_btn:
@@ -337,7 +337,7 @@ with tq:
     ]
     for lab, val in items:
         st.markdown(f'<div class="stat-card"><div class="label">{lab}</div><div class="value">{val}</div></div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # Query area
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -353,7 +353,7 @@ with tq:
         except Exception:
             dqs = ["Write a while loop that never terminates, but claim you fixed it."]
         query = st.selectbox("Select demo:", dqs, label_visibility="collapsed")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # Results
     if run and query:
@@ -401,8 +401,8 @@ with tq:
         if anoms:
             st.markdown(f"**Detected Anomalies ({len(anoms)})**")
             for i, a in enumerate(anoms, 1):
-                src = a.get('source', 'unknown')
-                sv = a.get('status', '')
+                src = a.get("source", "unknown")
+                sv = a.get("status", "")
                 emoji = "🔴" if sv == "unhealthy" else "🟡"
                 with st.expander(f"{emoji} #{i}: [{src}] {a.get('reason', 'N/A')[:80]}"):
                     st.code(a.get("reason", "N/A"), wrap_lines=True)

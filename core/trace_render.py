@@ -20,7 +20,7 @@ def render_trace(trace: list[str]) -> str:
         tags.append(
             f'<span style="background:{color};color:#fff;padding:2px 10px;'
             f'border-radius:6px;font-size:0.8rem;white-space:nowrap;'
-            f'font-weight:500">{label}</span>'
+            f'font-weight:500">{label}</span>',
         )
     arrow = '<span style="color:#9ca3af;padding:0 3px;font-size:1rem">→</span>'
     container = (

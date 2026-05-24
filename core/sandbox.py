@@ -99,7 +99,7 @@ def validate_docker(code: str) -> tuple[bool, str]:
 
     host_path = ""
     with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".py", delete=False, encoding="utf-8"
+        mode="w", suffix=".py", delete=False, encoding="utf-8",
     ) as f:
         f.write(code)
         host_path = f.name

@@ -192,7 +192,7 @@ def _auto_git_backup(error_pattern: str) -> None:
         # Check if we're in a git repo
         repo_root = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, timeout=5,
         ).stdout.strip()
         if not repo_root:
             return
@@ -200,7 +200,7 @@ def _auto_git_backup(error_pattern: str) -> None:
         # Check for changes to commit
         status = subprocess.run(
             ["git", "status", "--porcelain"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, timeout=5,
         ).stdout.strip()
         if not status:
             return
@@ -208,12 +208,12 @@ def _auto_git_backup(error_pattern: str) -> None:
         # Stage all and commit with immune response message
         subprocess.run(
             ["git", "add", "-A"],
-            capture_output=True, timeout=10
+            capture_output=True, timeout=10,
         )
         msg = f"immune: auto-backup before antibody — {error_pattern[:60]}"
         subprocess.run(
             ["git", "commit", "-m", msg, "--no-gpg-sign"],
-            capture_output=True, timeout=10
+            capture_output=True, timeout=10,
         )
         logger.info("Auto git backup created: %s", msg)
     except Exception as e:
@@ -331,14 +331,14 @@ For each, answer YES (flag it) or NO (clean):
                     "step": "cognitive_anomaly_detected",
                     "content": content,
                     "reason": reason,
-                }
+                },
             ],
             "anomalies": [
                 {
                     "status": "unhealthy",
                     "reason": f"Worker self-reported anomaly: {reason}",
                     "source": "worker",
-                }
+                },
             ],
             "final_output": None,
             "iteration_count": iteration,

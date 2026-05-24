@@ -27,7 +27,7 @@ except ImportError:
     HAS_CHROMADB = False
     logger.warning(
         "chromadb not installed. Immune memory will use in-memory fallback."
-        " Install with: pip install chromadb"
+        " Install with: pip install chromadb",
     )
 
 
@@ -63,13 +63,13 @@ class InMemoryStore:
         return ImmunologyMemory._token_similarity(a, b)
 
     def store_antibody(
-        self, error_pattern: str, antibody_code: str, context: str
+        self, error_pattern: str, antibody_code: str, context: str,
     ) -> bool:
         """Store antibody if no similar one exists. Returns True if stored."""
         # Dedup: check if a similar antibody already exists
         if self._find_similar(error_pattern, antibody_code):
             logger.debug(
-                "Skipping duplicate antibody for pattern: %s...", error_pattern[:40]
+                "Skipping duplicate antibody for pattern: %s...", error_pattern[:40],
             )
             return False
         now = time.time()
@@ -81,7 +81,7 @@ class InMemoryStore:
             "last_matched": now,
         })
         logger.info(
-            "Stored antibody (in-memory) for pattern: %s...", error_pattern[:50]
+            "Stored antibody (in-memory) for pattern: %s...", error_pattern[:50],
         )
         return True
 
@@ -196,19 +196,19 @@ class ImmunologyMemory:
                         logger.info("Using local ONNX embedding function")
                     except Exception as e:
                         logger.warning(
-                            "Local ONNX unavailable (%s), using chromadb default", e
+                            "Local ONNX unavailable (%s), using chromadb default", e,
                         )
 
                 os.makedirs(DB_DIR, exist_ok=True)
                 self._backend = "chromadb"
                 self.client = chromadb.PersistentClient(
-                    path=DB_DIR, settings=ChromaSettings(anonymized_telemetry=False)
+                    path=DB_DIR, settings=ChromaSettings(anonymized_telemetry=False),
                 )
                 coll_kwargs: dict = {}
                 if embedding_fcn is not None:
                     coll_kwargs["embedding_function"] = embedding_fcn
                 self.collection = self.client.get_or_create_collection(
-                    collection_name, **coll_kwargs
+                    collection_name, **coll_kwargs,
                 )
                 logger.info("Immune memory initialized (chromadb, path=%s)", DB_DIR)
                 self._auto_decay()
@@ -222,7 +222,7 @@ class ImmunologyMemory:
         logger.info("Immune memory initialized (in-memory fallback)")
 
     def store_antibody(
-        self, error_pattern: str, antibody_code: str, context: str
+        self, error_pattern: str, antibody_code: str, context: str,
     ) -> bool:
         """存储有效的抗体到向量数据库。Returns False if duplicate was skipped."""
         antibody_id = str(uuid.uuid4())
@@ -269,7 +269,7 @@ class ImmunologyMemory:
                 return False
 
         logger.info(
-            "Stored new antibody for pattern: %s...", error_pattern[:50]
+            "Stored new antibody for pattern: %s...", error_pattern[:50],
         )
         return True
 

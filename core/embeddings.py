@@ -70,11 +70,11 @@ class LocalOnnxEmbeddingFunction:
         if not os.path.exists(self._model_path):
             raise FileNotFoundError(
                 f"ONNX model not found at {self._model_path}. "
-                "Download from HF mirror first."
+                "Download from HF mirror first.",
             )
         if not os.path.exists(self._tokenizer_path):
             raise FileNotFoundError(
-                f"Tokenizer not found at {self._tokenizer_path}."
+                f"Tokenizer not found at {self._tokenizer_path}.",
             )
 
         logger.info("Loading local ONNX model from %s", self._model_path)
@@ -92,7 +92,7 @@ class LocalOnnxEmbeddingFunction:
                 max_len = cfg.get("max_position_embeddings", 256)
                 self._tokenizer.enable_truncation(max_length=max_len)
                 self._tokenizer.enable_padding(
-                pad_id=0, pad_token="[PAD]", length=max_len
+                pad_id=0, pad_token="[PAD]", length=max_len,
             )
             except Exception as e:
                 logger.warning("Failed to read config.json: %s", e)

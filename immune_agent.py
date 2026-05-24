@@ -57,7 +57,7 @@ if config_warnings:
             )
             logger.error(
                 f"{key_name} is not set. "
-                "Copy .env.example to .env and fill in your API key."
+                "Copy .env.example to .env and fill in your API key.",
             )
             sys.exit(1)
 
@@ -160,7 +160,7 @@ def run_single_query(
     finally:
         if use_alarm:
             signal.alarm(0)  # type: ignore[attr-defined]
-            if 'original_handler' in locals() and original_handler:
+            if "original_handler" in locals() and original_handler:
                 signal.signal(signal.SIGALRM, original_handler)  # type: ignore[attr-defined]
 
 
@@ -187,7 +187,7 @@ and print all keys. Make sure it handles infinite nesting.""",
 
         logger.info("--- Result ---")
         logger.info(
-            "Final Output: %s", str(result.get("final_output", "N/A"))[:300]
+            "Final Output: %s", str(result.get("final_output", "N/A"))[:300],
         )
         logger.info("Immune Active: %s", result.get("is_immune_active", False))
         logger.info("Validation: %s", result.get("validation_status", "N/A"))
@@ -207,7 +207,7 @@ and print all keys. Make sure it handles infinite nesting.""",
         escalation_report = result.get("escalation_report")
         if escalation_report:
             logger.warning(
-                "Escalation report generated: %s", escalation_report
+                "Escalation report generated: %s", escalation_report,
             )
 
         print()
@@ -317,7 +317,7 @@ def show_stats() -> None:
     # Immune memory stats
     try:
         count = memory_db.count()
-        backend = getattr(memory_db, '_backend', 'unknown')
+        backend = getattr(memory_db, "_backend", "unknown")
         print(f"\n  Immune Memory ({backend}):")
         print(f"    Stored Antibodies : {count}")
     except Exception as e:
@@ -372,13 +372,13 @@ def main() -> None:
         epilog=(
             "Examples:\n"
             "  %(prog)s                        Run demo test cases\n"
-            "  %(prog)s -q \"write a function\"  Single query\n"
+            '  %(prog)s -q "write a function"  Single query\n'
             "  %(prog)s -i                      Interactive mode\n"
             "  %(prog)s -b                      Run adversarial benchmark\n"
             "  %(prog)s -g                      Show workflow graph\n"
             "  %(prog)s -s                      Show immune memory stats\n"
-            "  %(prog)s -q \"hello\" -j          Output as JSON\n"
-            "  %(prog)s -q \"hello\" -t 30      Query with 30s timeout\n"
+            '  %(prog)s -q "hello" -j          Output as JSON\n'
+            '  %(prog)s -q "hello" -t 30      Query with 30s timeout\n'
             "  %(prog)s -d                      Daemon mode (self-healing)\n"
             "  %(prog)s -d --heartbeat 10       Daemon with 10s heartbeat\n"
         ),

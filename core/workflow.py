@@ -143,14 +143,14 @@ def build_workflow() -> StateGraph:
     # 注册节点 (用 trace wrapper 包装)
     workflow.add_node("worker", _with_trace("worker", main_worker_node))
     workflow.add_node(
-        "consistency_check", _with_trace("consistency_check", consistency_check_node)
+        "consistency_check", _with_trace("consistency_check", consistency_check_node),
     )
     workflow.add_node("monitor", _with_trace("monitor", monitor_node))
     workflow.add_node(
-        "generate_antibody", _with_trace("generate_antibody", generate_antibody_node)
+        "generate_antibody", _with_trace("generate_antibody", generate_antibody_node),
     )
     workflow.add_node(
-        "validate_antibody", _with_trace("validate_antibody", validate_antibody_node)
+        "validate_antibody", _with_trace("validate_antibody", validate_antibody_node),
     )
     workflow.add_node("finalize", _with_trace("finalize", finalize_node))
 

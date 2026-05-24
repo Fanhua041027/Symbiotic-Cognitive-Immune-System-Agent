@@ -293,3 +293,195 @@ class TestSessions:
         data = resp.json()
         assert data["status"] == "reset"
         assert data["new_session_id"] == "new-sess"
+
+
+# ---------------------------------------------------------------------------
+# Extended query validation
+# ---------------------------------------------------------------------------
+class TestQueryExtended:
+    """Boundary and default-value tests for the query endpoint."""
+
+    def test_query_default_timeout(self, client):
+        """POST /query without timeout uses default 60.0."""
+        fake_result = {
+            "final_output": "ok", "anomalies": [], "antibodies": [],
+            "is_immune_active": False, "validation_status": None,
+            "error": None, "escalation_report": None, "duration": 0.5,
+        }
+        with patch("immune_agent.run_single_query", return_value=fake_result) as mock:
+            resp = client.post("/query", json={"query": "hello"})
+        assert resp.status_code == 200
+        mock.assert_called_once_with("hello", timeout=60.0)
+
+    def test_query_timeout_too_high(self, client):
+        """POST /query with timeout > 300 returns 422."""
+        resp = client.post("/query", json={"query": "hello", "timeout": 301})
+        assert resp.status_code == 422
+
+    def test_query_timeout_too_low(self, client):
+        """POST /query with timeout < 1 returns 422."""
+        resp = client.post("/query", json={"query": "hello", "timeout": 0})
+        assert resp.status_code == 422
+
+    def test_query_missing_query_field(self, client):
+        """POST /query without query field returns 422."""
+        resp = client.post("/query", json={})
+        assert resp.status_code == 422
+
+    def test_query_at_max_length(self, client):
+        """POST /query with 5000 char query works."""
+        fake_result = {
+            "final_output": "ok", "anomalies": [], "antibodies": [],
+            "is_immune_active": False, "validation_status": None,
+            "error": None, "escalation_report": None, "duration": 0.5,
+        }
+        long_query = "a" * 5000
+        with patch("immune_agent.run_single_query", return_value=fake_result) as mock:
+            resp = client.post("/query", json={"query": long_query})
+        assert resp.status_code == 200
+        mock.assert_called_once_with(long_query, timeout=60.0)
+
+    def test_query_exceeds_max_length(self, client):
+        """POST /query with > 5000 char query returns 422."""
+        resp = client.post("/query", json={"query": "a" * 5001})
+        assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Error handling: stats
+# ---------------------------------------------------------------------------
+class TestStatsErrors:
+    """Error propagation from stats endpoint."""
+
+    def test_stats_on_metrics_error(self, client, mock_metrics):
+        """GET /stats returns 500 when metrics.get_summary fails."""
+        mock_metrics.side_effect = RuntimeError("metrics crash")
+        resp = client.get("/stats")
+        assert resp.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Error handling: config
+# ---------------------------------------------------------------------------
+class TestConfigErrors:
+    """Error propagation from config endpoint."""
+
+    def test_patch_config_server_error(self, client):
+        """PATCH /config returns 500 when save_config raises."""
+        with patch("core.config.save_config", side_effect=RuntimeError("write failed")):
+            resp = client.patch("/config", json={"updates": {"MAX_ITERATIONS": "10"}})
+        assert resp.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Error handling: memory
+# ---------------------------------------------------------------------------
+class TestMemoryErrors:
+    """Error propagation from memory endpoints."""
+
+    def test_list_memory_error(self, client, mock_memory):
+        """GET /memory returns 500 when list_antibodies fails."""
+        mock_memory.list_antibodies.side_effect = RuntimeError("DB error")
+        resp = client.get("/memory")
+        assert resp.status_code == 500
+
+    def test_delete_antibody_error(self, client, mock_memory):
+        """DELETE /memory/{id} returns 500 when delete_antibody fails."""
+        mock_memory.delete_antibody.side_effect = RuntimeError("DB error")
+        resp = client.delete("/memory/0")
+        assert resp.status_code == 500
+
+    def test_clear_memory_error(self, client, mock_memory):
+        """DELETE /memory returns 500 when clear_all fails."""
+        mock_memory.clear_all.side_effect = RuntimeError("DB error")
+        resp = client.delete("/memory")
+        assert resp.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Error handling: sessions
+# ---------------------------------------------------------------------------
+class TestSessionErrors:
+    """Error propagation from session endpoints."""
+
+    def test_list_sessions_error(self, client):
+        """GET /sessions returns 500 when list_sessions fails."""
+        with patch(
+            "core.agent_session.AgentSession.list_sessions",
+            side_effect=RuntimeError("fail"),
+        ):
+            resp = client.get("/sessions")
+        assert resp.status_code == 500
+
+    def test_get_session_error(self, client):
+        """GET /sessions/{id} returns 500 when load fails."""
+        with patch(
+            "core.agent_session.AgentSession.load",
+            side_effect=RuntimeError("fail"),
+        ):
+            resp = client.get("/sessions/test-001")
+        assert resp.status_code == 500
+
+    def test_reset_session_error(self, client):
+        """POST /sessions/reset returns 500 when reset fails."""
+        with patch(
+            "core.agent_session.reset_session",
+            side_effect=RuntimeError("fail"),
+        ):
+            resp = client.post("/sessions/reset")
+        assert resp.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Error handling: demo
+# ---------------------------------------------------------------------------
+class TestDemoErrors:
+    """Error propagation from demo endpoint."""
+
+    def test_run_demo_error(self, client):
+        """POST /demo/{name} returns 500 when run_single_query raises."""
+        with patch(
+            "immune_agent.run_single_query",
+            side_effect=RuntimeError("demo crash"),
+        ):
+            resp = client.post("/demo/case_1")
+        assert resp.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# CORS preflight
+# ---------------------------------------------------------------------------
+class TestCORSExtended:
+    """CORS preflight request handling."""
+
+    def test_cors_preflight(self, client):
+        """OPTIONS request returns CORS headers."""
+        resp = client.options(
+            "/health",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert resp.headers.get("access-control-allow-origin") == "*"
+        assert resp.headers.get("access-control-allow-methods") is not None
+
+
+# ---------------------------------------------------------------------------
+# Health degraded
+# ---------------------------------------------------------------------------
+class TestHealthDegraded:
+    """Health endpoint behavior without API keys."""
+
+    def test_health_degraded_without_key(self, client, monkeypatch):
+        """GET /health returns degraded status when no API key is set."""
+        import core.config as cfg_mod
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("CUSTOM_API_KEY", raising=False)
+        cfg_mod._validated = False
+        cfg_mod._values.clear()
+        resp = client.get("/health")
+        data = resp.json()
+        assert "degraded" in data["status"].lower()
+        assert data["config"]["has_api_key"] is False

@@ -16,7 +16,7 @@ from core.logger import setup_logger
 logger = setup_logger("escalation")
 
 ESCALATION_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "escalations"
+    os.path.dirname(os.path.dirname(__file__)), "escalations",
 )
 
 

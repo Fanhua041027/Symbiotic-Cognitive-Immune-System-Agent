@@ -131,7 +131,7 @@ class MetricsTracker:
                     round(escalations / total * 100, 1) if total > 0 else 0
                 ),
                 "avg_antibodies_per_query": round(
-                    sum(r.antibody_count for r in self._records) / total, 2
+                    sum(r.antibody_count for r in self._records) / total, 2,
                 ),
                 "latency": {
                     "avg_seconds": round(avg_duration, 2),

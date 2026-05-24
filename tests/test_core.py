@@ -420,7 +420,7 @@ class TestASTValidatorExtended:
     def test_nested_dangerous_attribute_call(self):
         """Detect deeply nested attribute calls like os.path.join(...)"""
         valid, reason = ASTValidator.validate(
-            "import os\nos.path.join('a', 'b')"
+            "import os\nos.path.join('a', 'b')",
         )
         assert not valid
         assert "dangerous" in reason.lower()
@@ -428,7 +428,7 @@ class TestASTValidatorExtended:
 
     def test_dunder_method_call(self):
         """Detect dunder method calls via AST."""
-        valid, reason = ASTValidator.validate('obj.__init__()')
+        valid, reason = ASTValidator.validate("obj.__init__()")
         assert not valid
         assert "dunder" in reason.lower()
 
@@ -440,7 +440,7 @@ class TestASTValidatorExtended:
     def test_safe_function_with_module_name(self):
         """A function named 'os' that is actually not os module should be OK."""
         valid, reason = ASTValidator.validate(
-            'class OS:\n    @staticmethod\n    def system(cmd): pass\nOS.system("ls")'
+            'class OS:\n    @staticmethod\n    def system(cmd): pass\nOS.system("ls")',
         )
         assert valid
 

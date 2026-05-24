@@ -142,8 +142,12 @@ async def query(request: QueryRequest) -> QueryResponse:
 async def stats():
     """Return system metrics and statistics."""
     from core.circuit_breaker import breaker
+    try:
+        metrics_summary = metrics.get_summary()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Metrics error: {e}")
     return {
-        "metrics": metrics.get_summary(),
+        "metrics": metrics_summary,
         "immune_memory": _memory_stats(),
         "circuit_breaker": breaker.all_status(),
     }
@@ -292,7 +296,11 @@ async def run_demo(name: str) -> QueryResponse:
 
     query = _demo_queries[name]
     logger.info("API demo: %s", name)
-    result = run_single_query(query)
+    try:
+        result = run_single_query(query)
+    except Exception as e:
+        logger.error("API demo error: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
     return QueryResponse(
         final_output=result.get("final_output"),
         error=result.get("error"),
@@ -312,7 +320,7 @@ def _memory_stats() -> dict:
     try:
         from core.memory import memory_db
         return {
-            "backend": getattr(memory_db, '_backend', 'unknown'),
+            "backend": getattr(memory_db, "_backend", "unknown"),
             "count": memory_db.count(),
         }
     except Exception as e:

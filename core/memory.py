@@ -195,8 +195,14 @@ class ImmunologyMemory:
                 embedding_fcn = None
                 if HAS_LOCAL_EMBEDDING:
                     try:
-                        embedding_fcn = LocalOnnxEmbeddingFunction()
-                        logger.info("Using local ONNX embedding function")
+                        from core.embeddings import MODEL_PATH, TOKENIZER_PATH
+                        if os.path.exists(MODEL_PATH) and os.path.exists(TOKENIZER_PATH):
+                            embedding_fcn = LocalOnnxEmbeddingFunction()
+                            logger.info("Using local ONNX embedding function")
+                        else:
+                            logger.info(
+                                "ONNX model not found, using chromadb default embedding",
+                            )
                     except Exception as e:
                         logger.warning(
                             "Local ONNX unavailable (%s), using chromadb default", e,
@@ -220,7 +226,6 @@ class ImmunologyMemory:
                 logger.warning("chromadb init failed (%s), falling back to in-memory", e)
 
         self._backend = "memory"
-        self._in_memory = InMemoryStore()
         self._auto_decay()
         logger.info("Immune memory initialized (in-memory fallback)")
 

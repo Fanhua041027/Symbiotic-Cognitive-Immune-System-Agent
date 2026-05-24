@@ -1018,7 +1018,7 @@ class TestRunSingleQuery:
         ):
             from immune_agent import run_single_query
             mock_invoke.return_value = {"final_output": "ok"}
-            result = run_single_query("test", record_session=False)
+            _ = run_single_query("test", record_session=False)
         # request_id appears in the initial state passed to app.invoke
         call_args = mock_invoke.call_args[0][0] if mock_invoke.call_args else {}
         assert "request_id" in call_args

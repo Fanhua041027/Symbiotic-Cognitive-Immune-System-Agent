@@ -187,13 +187,22 @@ class ImmunologyMemory:
     """管理免疫记忆：存储和检索历史抗体（补丁）。"""
 
     def __init__(self, collection_name: str = "antibodies"):
+        # Always create in-memory fallback for use when chromadb.add fails
+        self._in_memory = InMemoryStore()
+
         if HAS_CHROMADB:
             try:
                 embedding_fcn = None
                 if HAS_LOCAL_EMBEDDING:
                     try:
-                        embedding_fcn = LocalOnnxEmbeddingFunction()
-                        logger.info("Using local ONNX embedding function")
+                        from core.embeddings import MODEL_PATH, TOKENIZER_PATH
+                        if os.path.exists(MODEL_PATH) and os.path.exists(TOKENIZER_PATH):
+                            embedding_fcn = LocalOnnxEmbeddingFunction()
+                            logger.info("Using local ONNX embedding function")
+                        else:
+                            logger.info(
+                                "ONNX model not found, using chromadb default embedding",
+                            )
                     except Exception as e:
                         logger.warning(
                             "Local ONNX unavailable (%s), using chromadb default", e,
@@ -217,7 +226,6 @@ class ImmunologyMemory:
                 logger.warning("chromadb init failed (%s), falling back to in-memory", e)
 
         self._backend = "memory"
-        self._in_memory = InMemoryStore()
         self._auto_decay()
         logger.info("Immune memory initialized (in-memory fallback)")
 
@@ -253,16 +261,25 @@ class ImmunologyMemory:
             except Exception:
                 pass
 
-            self.collection.add(
-                documents=[context],
-                ids=[antibody_id],
-                metadatas=[{
-                    "error_pattern": error_pattern,
-                    "code": antibody_code,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "last_matched": datetime.now(timezone.utc).isoformat(),
-                }],
-            )
+            try:
+                self.collection.add(
+                    documents=[context],
+                    ids=[antibody_id],
+                    metadatas=[{
+                        "error_pattern": error_pattern,
+                        "code": antibody_code,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "last_matched": datetime.now(timezone.utc).isoformat(),
+                    }],
+                )
+            except Exception as e:
+                logger.warning(
+                    "chromadb add failed (%s), falling back to in-memory", e,
+                )
+                stored = self._in_memory.store_antibody(
+                    error_pattern, antibody_code, context)
+                if not stored:
+                    return False
         else:
             stored = self._in_memory.store_antibody(error_pattern, antibody_code, context)
             if not stored:

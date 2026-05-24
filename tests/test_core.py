@@ -25,6 +25,17 @@ from core.sandbox import (
 )
 from core.state import ImmunologyState
 
+# Check if local ONNX model is available (not present on CI runners)
+try:
+    from core.embeddings import MODEL_PATH, TOKENIZER_PATH
+    _ONNX_AVAILABLE = os.path.exists(MODEL_PATH) and os.path.exists(TOKENIZER_PATH)
+except ImportError:
+    _ONNX_AVAILABLE = False
+
+skip_no_onnx = pytest.mark.skipif(
+    not _ONNX_AVAILABLE,
+    reason="ONNX model files not available locally",
+)
 
 # ---------------------------------------------------------------------------
 # State schema
@@ -640,18 +651,24 @@ class TestMemory:
         """Storing a very similar antibody pattern is skipped."""
         from core.memory import InMemoryStore
         store = InMemoryStore()
-        store.store_antibody(
-            "infinite loop detected in while",
-            "while counter < limit: counter += 1",
-            "context",
-        )
-        stored2 = store.store_antibody(
-            "infinite loop in while True",
-            "while counter < limit: counter += 1",
-            "context",
-        )
-        assert stored2 is False
-        assert store.count() == 1
+        # Force high similarity to guarantee dedup regardless of ONNX availability
+        orig = store._semantic_similarity
+        store._semantic_similarity = lambda a, b: 0.9  # above 0.85 threshold
+        try:
+            store.store_antibody(
+                "infinite loop detected in while",
+                "while counter < limit: counter += 1",
+                "context",
+            )
+            stored2 = store.store_antibody(
+                "infinite loop in while True",
+                "while counter < limit: counter += 1",
+                "context",
+            )
+            assert stored2 is False
+            assert store.count() == 1
+        finally:
+            store._semantic_similarity = orig
 
     def test_dedup_different_antibody_stored(self):
         """Different antibodies are both stored."""
@@ -1902,6 +1919,7 @@ class TestLocalOnnxEmbedding:
         assert isinstance(name, str)
         assert len(name) > 0
 
+    @skip_no_onnx
     def test_embedding_function_call(self):
         """__call__ returns normalized embeddings."""
         from core.embeddings import LocalOnnxEmbeddingFunction
@@ -1914,6 +1932,7 @@ class TestLocalOnnxEmbedding:
         norm = math.sqrt(sum(v * v for v in result[0]))
         assert abs(norm - 1.0) < 1e-4
 
+    @skip_no_onnx
     def test_embedding_similar_texts(self):
         """Similar texts produce similar embeddings (cosine ~1)."""
         from core.embeddings import LocalOnnxEmbeddingFunction
@@ -1923,6 +1942,7 @@ class TestLocalOnnxEmbedding:
         dot = sum(x * y for x, y in zip(a, b))
         assert dot > 0.5, f"Similar texts should have high cosine: {dot}"
 
+    @skip_no_onnx
     def test_embedding_dissimilar_texts(self):
         """Dissimilar texts produce less similar embeddings."""
         from core.embeddings import LocalOnnxEmbeddingFunction

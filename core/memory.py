@@ -253,16 +253,25 @@ class ImmunologyMemory:
             except Exception:
                 pass
 
-            self.collection.add(
-                documents=[context],
-                ids=[antibody_id],
-                metadatas=[{
-                    "error_pattern": error_pattern,
-                    "code": antibody_code,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "last_matched": datetime.now(timezone.utc).isoformat(),
-                }],
-            )
+            try:
+                self.collection.add(
+                    documents=[context],
+                    ids=[antibody_id],
+                    metadatas=[{
+                        "error_pattern": error_pattern,
+                        "code": antibody_code,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "last_matched": datetime.now(timezone.utc).isoformat(),
+                    }],
+                )
+            except Exception as e:
+                logger.warning(
+                    "chromadb add failed (%s), falling back to in-memory", e,
+                )
+                stored = self._in_memory.store_antibody(
+                    error_pattern, antibody_code, context)
+                if not stored:
+                    return False
         else:
             stored = self._in_memory.store_antibody(error_pattern, antibody_code, context)
             if not stored:

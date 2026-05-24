@@ -191,6 +191,7 @@ def _auto_git_backup(error_pattern: str) -> None:
     if not _AUTO_BACKUP_ENABLED:
         return
     import subprocess
+    from datetime import datetime, timezone
     try:
         # Check if we're in a git repo
         repo_root = subprocess.run(
@@ -213,7 +214,10 @@ def _auto_git_backup(error_pattern: str) -> None:
             ["git", "add", "-A"],
             capture_output=True, timeout=10,
         )
-        msg = f"immune: auto-backup before antibody — {error_pattern[:60]}"
+        timestamp = datetime.now(timezone.utc).strftime("%H%M%S")
+        msg = (
+            f"immune: auto-backup {timestamp} — {error_pattern[:60]}"
+        )
         subprocess.run(
             ["git", "commit", "-m", msg, "--no-gpg-sign"],
             capture_output=True, timeout=10,

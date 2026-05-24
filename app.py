@@ -705,7 +705,9 @@ with tmet:
     with cx2:
         if st.button("Reset", use_container_width=True): st.rerun()
 
-# Auto-refresh loop
+# Auto-refresh via browser meta tag (non-blocking)
 if auto_refresh:
-    time.sleep(5)
-    st.rerun()
+    st.markdown(
+        '<meta http-equiv="refresh" content="5">',
+        unsafe_allow_html=True,
+    )

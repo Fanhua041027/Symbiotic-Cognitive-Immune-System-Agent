@@ -166,13 +166,13 @@ def save_config(updates: dict[str, str]) -> list[str]:
                 continue
             key = stripped.split("=", 1)[0].strip()
             if key in updates:
-                lines[i] = f"{key}={updates[key]}\n"
+                lines[i] = f"{key}={updates[key].replace('$', '$$')}\n"
                 updated_keys.add(key)
 
         # Add new keys not found in file
         for key, value in updates.items():
             if key not in updated_keys:
-                lines.append(f"{key}={value}\n")
+                lines.append(f"{key}={value.replace('$', '$$')}\n")
 
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             f.writelines(lines)

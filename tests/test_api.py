@@ -65,11 +65,12 @@ def client(mock_metrics, mock_memory):
 # ---------------------------------------------------------------------------
 class TestHealth:
     def test_health_returns_ok(self, client):
+        from core.version import VERSION
         resp = client.get("/health")
         assert resp.status_code == 200
         data = resp.json()
         assert "status" in data
-        assert data["version"] == "1.1.0"
+        assert data["version"] == VERSION
         assert "config" in data
 
     def test_root_redirects_to_health(self, client):

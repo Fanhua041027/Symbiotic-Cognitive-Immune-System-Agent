@@ -297,7 +297,7 @@ class TestSandboxSimulated:
             "    max_iter = 100\n"
             "    for i in range(max_iter):\n"
             "        process(i)\n"
-            "    return"
+            "    return",
         )
 
     def test_short_code_fails(self):
@@ -376,7 +376,7 @@ class TestValidateAntibody:
             "    while counter < max_iter:\n"
             "        process(counter)\n"
             "        counter += 1\n"
-            "    return result"
+            "    return result",
         )
         assert valid
 

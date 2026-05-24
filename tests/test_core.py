@@ -905,7 +905,7 @@ class TestMonitorNode:
         state = dict(immune_state, user_query="hello", task_steps=[{"output": "bad"}])
         with patch(
             "core.nodes._invoke_llm",
-            return_value='{"status": "anomaly", "reason": "infinite loop risk", "category": "infinite_loop"}',
+            return_value='{"status": "unhealthy", "reason": "infinite loop risk"}',
         ):
             result = monitor_node(state)
         assert len(result.get("anomalies", [])) > 0
@@ -987,8 +987,8 @@ class TestRunSingleQuery:
         }
         with (
             patch("core.workflow.app.invoke", return_value=dict(fake_result)),
-            patch("immune_agent.metrics") as mock_metrics,
-            patch("immune_agent.escalation"),
+            patch("core.metrics.metrics") as mock_metrics,
+            patch("core.escalation.escalation"),
         ):
             from immune_agent import run_single_query
             result = run_single_query("test query", record_session=False)
@@ -1000,8 +1000,8 @@ class TestRunSingleQuery:
         """Workflow error returns error result."""
         with (
             patch("core.workflow.app.invoke", side_effect=RuntimeError("test error")),
-            patch("immune_agent.metrics") as mock_metrics,
-            patch("immune_agent.escalation"),
+            patch("core.metrics.metrics") as mock_metrics,
+            patch("core.escalation.escalation"),
         ):
             from immune_agent import run_single_query
             result = run_single_query("bad query", record_session=False)
@@ -1013,8 +1013,8 @@ class TestRunSingleQuery:
         """Each query gets a unique request_id."""
         with (
             patch("core.workflow.app.invoke", return_value={"final_output": "ok"}),
-            patch("immune_agent.metrics"),
-            patch("immune_agent.escalation"),
+            patch("core.metrics.metrics"),
+            patch("core.escalation.escalation"),
         ):
             from immune_agent import run_single_query
             result = run_single_query("test", record_session=False)
@@ -1025,8 +1025,8 @@ class TestRunSingleQuery:
         """Escalation is reset before each query."""
         with (
             patch("core.workflow.app.invoke", return_value={"final_output": "ok"}),
-            patch("immune_agent.metrics"),
-            patch("immune_agent.escalation") as mock_esc,
+            patch("core.metrics.metrics"),
+            patch("core.escalation.escalation") as mock_esc,
         ):
             from immune_agent import run_single_query
             run_single_query("test", record_session=False)

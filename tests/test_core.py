@@ -291,13 +291,22 @@ class TestWorkflowFinalizeNode:
 # ---------------------------------------------------------------------------
 class TestSandboxSimulated:
     def test_valid_code_passes(self):
-        assert validate_simulated("def fix_loop():\n    max_iter = 100\n    return")
+        assert validate_simulated(
+            "def fix_loop():\n"
+            '    """Prevent infinite loop with max iteration guard."""\n'
+            "    max_iter = 100\n"
+            "    for i in range(max_iter):\n"
+            "        process(i)\n"
+            "    return"
+        )
 
     def test_short_code_fails(self):
         assert not validate_simulated("x = 1")
 
     def test_code_with_fix_keyword_passes(self):
-        assert validate_simulated("Add a guard clause to prevent infinite recursion")
+        assert validate_simulated(
+            "Add a guard clause to prevent infinite recursion loops")
+        assert validate_simulated("x = 1") is False  # too short
 
 
 class TestASTValidator:
@@ -359,7 +368,16 @@ class TestValidateAntibody:
     def test_simulated_mode(self, mock_cfg):
         mock_cfg.return_value = "simulated"
         from core.sandbox import validate_antibody
-        valid, _ = validate_antibody("def fix():\n    return True")
+        valid, _ = validate_antibody(
+            "def fix_infinite_loop():\n"
+            '    """Guard against runaway iteration."""\n'
+            "    max_iter = 100\n"
+            "    counter = 0\n"
+            "    while counter < max_iter:\n"
+            "        process(counter)\n"
+            "        counter += 1\n"
+            "    return result"
+        )
         assert valid
 
     @patch("core.sandbox.cfg")
@@ -485,7 +503,7 @@ class TestValidateAntibodyExtended:
     def test_simulated_code_with_guard(self, mock_cfg):
         mock_cfg.return_value = "simulated"
         from core.sandbox import validate_antibody
-        code = "if counter > max_iterations: break"
+        code = "if counter >= max_iterations: break  # stop runaway loop"
         valid, _ = validate_antibody(code)
         assert valid
 

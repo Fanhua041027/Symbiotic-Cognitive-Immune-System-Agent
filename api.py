@@ -24,6 +24,7 @@ from core.config import get as cfg
 from core.config import validate_all
 from core.logger import setup_logger
 from core.metrics import metrics
+from core.version import VERSION
 
 logger = setup_logger("api")
 
@@ -49,20 +50,21 @@ except ImportError:
 
 app = FastAPI(
     title="Symbiotic Cognitive Immune System Agent API",
-    version="1.1.0",
+    version=VERSION,
     description="REST API for the bio-inspired multi-agent immune system framework",
 )
 
-# CORS: allow Streamlit (localhost:8501) and any origin in production
+# CORS: restrict to known origins; configure via CORS_ORIGINS env var
 try:
+    cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:8501").split(",")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-except Exception:
-    pass
+except Exception as e:
+    logger.warning("CORS middleware setup failed: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +104,7 @@ async def health() -> HealthResponse:
 
     return HealthResponse(
         status="ok" if has_api_key else "degraded (no API key)",
-        version="1.1.0",
+        version=VERSION,
         config={
             "provider": cfg("LLM_PROVIDER", "openai"),
             "worker_model": cfg("MAIN_LLM_MODEL", "gpt-4o"),
@@ -337,7 +339,7 @@ def main():
         logger.error("uvicorn not installed. Run: pip install uvicorn")
         sys.exit(1)
     port = int(os.getenv("API_PORT", "8000"))
-    host = os.getenv("API_HOST", "0.0.0.0")
+    host = os.getenv("API_HOST", "127.0.0.1")
     logger.info("Starting API server on %s:%s", host, port)
     uvicorn.run(app, host=host, port=port, log_level="info")
 

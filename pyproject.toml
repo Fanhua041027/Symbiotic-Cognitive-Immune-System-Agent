@@ -1,10 +1,10 @@
 [build-system]
 requires = ["setuptools>=69.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "symbiotic-immune-agent"
-version = "1.1.0"
+dynamic = ["version"]
 description = "Bio-inspired multi-agent defense framework with self-diagnosis, self-healing, and self-evolution capabilities"
 requires-python = ">=3.10"
 dependencies = [
@@ -25,6 +25,9 @@ Repository = "https://github.com/Fanhua041027/Symbiotic-Cognitive-Immune-System-
 
 [tool.setuptools.packages.find]
 include = ["core*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "core.version.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

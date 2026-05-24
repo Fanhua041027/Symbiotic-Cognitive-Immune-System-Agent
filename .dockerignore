@@ -31,6 +31,7 @@ logs/
 escalations/
 benchmarks/
 metrics/
+sessions/
 
 # CI / quality
 .github/

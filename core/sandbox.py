@@ -28,8 +28,8 @@ def validate_simulated(code: str) -> bool:
         "return", "try", "except", "if", "validate",
     ]
     has_keywords = any(kw in code.lower() for kw in fix_keywords)
-    is_long_enough = len(code) > 15
-    return has_keywords or is_long_enough
+    is_long_enough = len(code) > 40
+    return has_keywords and is_long_enough
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +108,10 @@ def validate_docker(code: str) -> tuple[bool, str]:
     try:
         result = subprocess.run(
             ["docker", "run", "--rm",
-             "-v", f"{host_path}:{container_path}",
+             "--memory=256m", "--cpus=0.5",
+             "--network=none", "--read-only",
+             "--security-opt=no-new-privileges",
+             "-v", f"{host_path}:{container_path}:ro",
              "python:3.11-alpine",
              "python", container_path],
             capture_output=True, text=True, timeout=30,

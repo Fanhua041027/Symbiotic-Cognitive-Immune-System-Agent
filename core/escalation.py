@@ -7,6 +7,7 @@ reports when the system cannot autonomously resolve anomalies.
 import glob
 import json
 import os
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -24,6 +25,7 @@ class EscalationTracker:
     """Tracks immune failures and triggers human escalation."""
 
     def __init__(self):
+        self._lock = threading.Lock()
         self._consecutive_failures = 0
         self._history: list[dict] = []
 
@@ -37,34 +39,37 @@ class EscalationTracker:
         Record an immune response failure.
         Returns escalation report path if threshold exceeded.
         """
-        self._consecutive_failures += 1
-        entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "query": query[:200],
-            "anomaly": anomaly_reason[:200],
-            "antibodies_generated": antibodies_generated,
-            "consecutive_failures": self._consecutive_failures,
-        }
-        self._history.append(entry)
+        with self._lock:
+            self._consecutive_failures += 1
+            entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "query": query[:200],
+                "anomaly": anomaly_reason[:200],
+                "antibodies_generated": antibodies_generated,
+                "consecutive_failures": self._consecutive_failures,
+            }
+            self._history.append(entry)
+            current_failures = self._consecutive_failures
         logger.warning(
             "Immune failure #%d: %s",
-            self._consecutive_failures,
+            current_failures,
             anomaly_reason[:80],
         )
 
         threshold = cfg("ESCALATION_THRESHOLD", 3)
-        if self._consecutive_failures >= threshold:
+        if current_failures >= threshold:
             return self._generate_report(threshold)
         return None
 
     def record_success(self):
         """Reset the failure counter on successful recovery."""
-        if self._consecutive_failures > 0:
+        with self._lock:
+            prev = self._consecutive_failures
+            self._consecutive_failures = 0
+        if prev > 0:
             logger.info(
-                "Immune system recovered after %d failures",
-                self._consecutive_failures,
+                "Immune system recovered after %d failures", prev,
             )
-        self._consecutive_failures = 0
 
     def _generate_report(self, threshold: int = 3) -> str:
         """Write an escalation report to disk."""
@@ -102,13 +107,15 @@ class EscalationTracker:
 
         Call this between independent queries to prevent cross-query bleeding.
         """
-        self._consecutive_failures = 0
-        self._history.clear()
+        with self._lock:
+            self._consecutive_failures = 0
+            self._history.clear()
         logger.debug("Escalation tracker reset")
 
     @property
     def consecutive_failures(self) -> int:
-        return self._consecutive_failures
+        with self._lock:
+            return self._consecutive_failures
 
     @staticmethod
     def cleanup_old_reports(max_age_days: int = 30) -> int:

@@ -169,7 +169,9 @@ def _invoke_llm(
             logger.info("Primary LLM failed for [%s], trying fallback: %s", circuit_name, e)
             try:
                 response = fallback.invoke(prompt)
-                breaker.record_success(circuit_name)
+                # Leave primary breaker in half_open — the fallback succeeding
+                # doesn't mean the primary has recovered. The next call will
+                # probe the primary through can_execute()'s half_open path.
                 raw = response.content
                 return raw if isinstance(raw, str) else str(raw)
             except Exception as e2:

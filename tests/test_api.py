@@ -81,7 +81,7 @@ class TestHealth:
     def test_cors_headers_present(self, client):
         """CORS middleware adds Access-Control-Allow-Origin header."""
         resp = client.get("/health", headers={"Origin": "http://localhost:8501"})
-        assert resp.headers.get("access-control-allow-origin") == "*"
+        assert resp.headers.get("access-control-allow-origin") == "http://localhost:8501"
 
 
 # ---------------------------------------------------------------------------
@@ -459,11 +459,11 @@ class TestCORSExtended:
         resp = client.options(
             "/health",
             headers={
-                "Origin": "http://localhost:3000",
+                "Origin": "http://localhost:8501",
                 "Access-Control-Request-Method": "GET",
             },
         )
-        assert resp.headers.get("access-control-allow-origin") == "*"
+        assert resp.headers.get("access-control-allow-origin") == "http://localhost:8501"
         assert resp.headers.get("access-control-allow-methods") is not None
 
 

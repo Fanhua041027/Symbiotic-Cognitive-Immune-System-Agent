@@ -187,6 +187,9 @@ class ImmunologyMemory:
     """管理免疫记忆：存储和检索历史抗体（补丁）。"""
 
     def __init__(self, collection_name: str = "antibodies"):
+        # Always create in-memory fallback for use when chromadb.add fails
+        self._in_memory = InMemoryStore()
+
         if HAS_CHROMADB:
             try:
                 embedding_fcn = None

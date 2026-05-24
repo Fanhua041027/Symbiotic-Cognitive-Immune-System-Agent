@@ -640,18 +640,24 @@ class TestMemory:
         """Storing a very similar antibody pattern is skipped."""
         from core.memory import InMemoryStore
         store = InMemoryStore()
-        store.store_antibody(
-            "infinite loop detected in while",
-            "while counter < limit: counter += 1",
-            "context",
-        )
-        stored2 = store.store_antibody(
-            "infinite loop in while True",
-            "while counter < limit: counter += 1",
-            "context",
-        )
-        assert stored2 is False
-        assert store.count() == 1
+        # Force high similarity to guarantee dedup regardless of ONNX availability
+        orig = store._semantic_similarity
+        store._semantic_similarity = lambda a, b: 0.9  # above 0.85 threshold
+        try:
+            store.store_antibody(
+                "infinite loop detected in while",
+                "while counter < limit: counter += 1",
+                "context",
+            )
+            stored2 = store.store_antibody(
+                "infinite loop in while True",
+                "while counter < limit: counter += 1",
+                "context",
+            )
+            assert stored2 is False
+            assert store.count() == 1
+        finally:
+            store._semantic_similarity = orig
 
     def test_dedup_different_antibody_stored(self):
         """Different antibodies are both stored."""

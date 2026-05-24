@@ -1010,16 +1010,19 @@ class TestRunSingleQuery:
         mock_metrics.record_query.assert_called_once()
 
     def test_run_single_query_sets_request_id(self):
-        """Each query gets a unique request_id."""
+        """Each query gets a unique request_id in the initial state."""
         with (
-            patch("core.workflow.app.invoke", return_value={"final_output": "ok"}),
+            patch("core.workflow.app.invoke") as mock_invoke,
             patch("core.metrics.metrics"),
             patch("core.escalation.escalation"),
         ):
             from immune_agent import run_single_query
+            mock_invoke.return_value = {"final_output": "ok"}
             result = run_single_query("test", record_session=False)
-        assert result.get("request_id") is not None
-        assert len(result["request_id"]) == 12
+        # request_id appears in the initial state passed to app.invoke
+        call_args = mock_invoke.call_args[0][0] if mock_invoke.call_args else {}
+        assert "request_id" in call_args
+        assert len(call_args["request_id"]) == 12
 
     def test_run_single_query_resets_escalation(self):
         """Escalation is reset before each query."""

@@ -85,6 +85,9 @@ class LocalOnnxEmbeddingFunction:
         self._tokenizer = Tokenizer.from_file(self._tokenizer_path)
 
         # Configure tokenizer for sentence-transformers style
+        # Set safe defaults FIRST, then override max_len from config if available
+        self._tokenizer.enable_truncation(max_length=256)
+        self._tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
         if os.path.exists(CONFIG_PATH):
             try:
                 with open(CONFIG_PATH) as f:
@@ -92,12 +95,10 @@ class LocalOnnxEmbeddingFunction:
                 max_len = cfg.get("max_position_embeddings", 256)
                 self._tokenizer.enable_truncation(max_length=max_len)
                 self._tokenizer.enable_padding(
-                pad_id=0, pad_token="[PAD]", length=max_len,
-            )
+                    pad_id=0, pad_token="[PAD]", length=max_len,
+                )
             except Exception as e:
                 logger.warning("Failed to read config.json: %s", e)
-                self._tokenizer.enable_truncation(max_length=256)
-                self._tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
 
     def __call__(self, input: list[str]) -> list[list[float]]:
         self._ensure_loaded()

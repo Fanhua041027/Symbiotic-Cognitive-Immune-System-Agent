@@ -121,13 +121,17 @@ def run_single_query(
         if use_alarm:
             result = app.invoke(initial_state, config=config)  # type: ignore[attr-defined]
         else:
-            # Windows: use ThreadPoolExecutor for timeout
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(app.invoke, initial_state, config)  # type: ignore[attr-defined]
+            # Windows: use ThreadPoolExecutor for timeout.
+            # NOTE: avoid `with` statement — pool.shutdown(wait=True) blocks
+            # until the task completes, defeating the timeout.
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             try:
+                future = pool.submit(app.invoke, initial_state, config)  # type: ignore[attr-defined]
                 result = future.result(timeout=timeout)
             except concurrent.futures.TimeoutError:
                 raise TimeoutError_(f"Query timed out after {timeout}s")
+            finally:
+                pool.shutdown(wait=False)  # don't block — abandon thread
 
         duration = _time.time() - start_time
         result["user_query"] = query

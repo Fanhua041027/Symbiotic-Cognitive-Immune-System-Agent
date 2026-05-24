@@ -152,7 +152,8 @@ def _invoke_llm(
         if fallback:
             logger.info("Circuit breaker [%s] open, using fallback LLM", circuit_name)
             response = fallback.invoke(prompt)
-            breaker.record_success(circuit_name)
+            # Do NOT record_success on primary breaker — it's still failing.
+            # Leave it in half_open so the next call probes the primary first.
             raw = response.content
             return raw if isinstance(raw, str) else str(raw)
         raise RuntimeError(f"LLM circuit breaker open for '{circuit_name}' (no fallback)")

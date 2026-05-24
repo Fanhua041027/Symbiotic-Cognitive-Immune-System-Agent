@@ -1,8 +1,9 @@
 """免疫记忆系统 - 基于 ChromaDB 的抗体存储与检索。"""
 
 import os
+import time
 import uuid
-from typing import Dict, Optional
+from datetime import datetime, timezone
 
 from core.logger import setup_logger
 
@@ -35,6 +36,31 @@ class InMemoryStore:
 
     def __init__(self):
         self._antibodies: list[dict] = []
+        self._embedding_fn = None
+        # Try to load ONNX embedding for semantic dedup
+        if HAS_LOCAL_EMBEDDING:
+            try:
+                from core.embeddings import LocalOnnxEmbeddingFunction
+                self._embedding_fn = LocalOnnxEmbeddingFunction()
+                logger.info("InMemoryStore: using ONNX embedding for dedup")
+            except Exception:
+                pass
+        if self._embedding_fn is None:
+            logger.info("InMemoryStore: using Jaccard token overlap for dedup")
+
+    def _semantic_similarity(self, a: str, b: str) -> float:
+        """Cosine similarity via ONNX embedding, with Jaccard fallback.
+        Falls back to Jaccard for short texts (< 30 chars) where embeddings are unreliable."""
+        if len(a) < 30 or len(b) < 30:
+            return ImmunologyMemory._token_similarity(a, b)
+        if self._embedding_fn:
+            try:
+                vecs = self._embedding_fn([a, b])
+                return sum(  # L2 normed → dot = cosine
+                    x * y for x, y in zip(vecs[0], vecs[1]))
+            except Exception:
+                pass
+        return ImmunologyMemory._token_similarity(a, b)
 
     def store_antibody(
         self, error_pattern: str, antibody_code: str, context: str
@@ -46,10 +72,13 @@ class InMemoryStore:
                 "Skipping duplicate antibody for pattern: %s...", error_pattern[:40]
             )
             return False
+        now = time.time()
         self._antibodies.append({
             "error_pattern": error_pattern,
             "code": antibody_code,
             "context": context,
+            "created_at": now,
+            "last_matched": now,
         })
         logger.info(
             "Stored antibody (in-memory) for pattern: %s...", error_pattern[:50]
@@ -57,17 +86,17 @@ class InMemoryStore:
         return True
 
     def _find_similar(self, error_pattern: str, antibody_code: str) -> bool:
-        """Check if a similar antibody already exists (Jaccard overlap >= 0.7)."""
+        """Check if a similar antibody already exists (cosine >= 0.85 or Jaccard >= 0.7)."""  # noqa: E501
         if not self._antibodies:
             return False
-        combined = (error_pattern + " " + antibody_code).lower()
+        combined = error_pattern + " " + antibody_code
         for ab in self._antibodies:
-            existing = (ab.get("error_pattern", "") + " " + ab.get("code", "")).lower()
-            if ImmunologyMemory._token_similarity(combined, existing) >= 0.7:
+            existing = ab.get("error_pattern", "") + " " + ab.get("code", "")
+            if self._semantic_similarity(combined, existing) >= 0.85:
                 return True
         return False
 
-    def search_antibody(self, query: str) -> Optional[Dict[str, str]]:
+    def search_antibody(self, query: str) -> dict[str, str] | None:
         if not self._antibodies:
             return None
 
@@ -94,12 +123,17 @@ class InMemoryStore:
         if not scored:
             return None
 
-        # Return best match
+        # Return best match and update last_matched
         scored.sort(key=lambda x: -x[0])
         best = scored[0][1]
+        best["last_matched"] = time.time()
         logger.debug("In-memory search: best score=%.2f for pattern=%s",
                       scored[0][0], best.get("error_pattern", "?")[:40])
         return {"code": best["code"], "pattern": best["error_pattern"]}
+
+    @staticmethod
+    def _fmt_time(ts: float) -> str:
+        return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="seconds")
 
     def list_antibodies(self, limit: int = 50) -> list[dict]:
         return [
@@ -108,6 +142,8 @@ class InMemoryStore:
                 "error_pattern": ab.get("error_pattern", "unknown"),
                 "code": ab.get("code", "")[:200],
                 "context": ab.get("context", "")[:200],
+                "created_at": self._fmt_time(ab.get("created_at", 0)),
+                "last_matched": self._fmt_time(ab.get("last_matched", 0)),
             }
             for i, ab in enumerate(self._antibodies)
         ][:limit]
@@ -130,6 +166,22 @@ class InMemoryStore:
     def count(self) -> int:
         return len(self._antibodies)
 
+    def decay(self, ttl_days: int = 30, prune_unmatched_days: int = 90) -> int:
+        """Remove antibodies past TTL or last_matched threshold. Returns count removed."""
+        now = time.time()
+        ttl_sec = ttl_days * 86400
+        unmatched_sec = prune_unmatched_days * 86400
+        before = len(self._antibodies)
+        self._antibodies = [
+            ab for ab in self._antibodies
+            if (now - ab.get("created_at", now)) < ttl_sec
+            and (now - ab.get("last_matched", now)) < unmatched_sec
+        ]
+        removed = before - len(self._antibodies)
+        if removed:
+            logger.info("InMemoryStore: decay removed %d antibodies", removed)
+        return removed
+
 
 class ImmunologyMemory:
     """管理免疫记忆：存储和检索历史抗体（补丁）。"""
@@ -144,7 +196,7 @@ class ImmunologyMemory:
                         logger.info("Using local ONNX embedding function")
                     except Exception as e:
                         logger.warning(
-                            "Local ONNX embedding unavailable (%s), using chromadb default", e
+                            "Local ONNX unavailable (%s), using chromadb default", e
                         )
 
                 os.makedirs(DB_DIR, exist_ok=True)
@@ -159,12 +211,14 @@ class ImmunologyMemory:
                     collection_name, **coll_kwargs
                 )
                 logger.info("Immune memory initialized (chromadb, path=%s)", DB_DIR)
+                self._auto_decay()
                 return
             except Exception as e:
                 logger.warning("chromadb init failed (%s), falling back to in-memory", e)
 
         self._backend = "memory"
         self._in_memory = InMemoryStore()
+        self._auto_decay()
         logger.info("Immune memory initialized (in-memory fallback)")
 
     def store_antibody(
@@ -173,29 +227,41 @@ class ImmunologyMemory:
         """存储有效的抗体到向量数据库。Returns False if duplicate was skipped."""
         antibody_id = str(uuid.uuid4())
         if self._backend == "chromadb":
-            # Dedup: skip if similar antibody already exists in collection
+            # Dedup: single query for exact match + semantic distance check
+            query_text = (context + " " + error_pattern).strip()
             try:
+                n = 5 if len(query_text) < 40 else 1
+                q = query_text if query_text else error_pattern
                 results = self.collection.query(
-                    query_texts=[context + " " + error_pattern],
-                    n_results=1,
+                    query_texts=[q], n_results=n,
+                    include=["distances", "metadatas"],
                 )
                 if results["ids"] and results["ids"][0]:
-                    existing_meta = (results.get("metadatas") or [[{}]])[0][0]
-                    existing_code = existing_meta.get("code", "")
-                    similarity = self._token_similarity(antibody_code, existing_code)
-                    if existing_code and similarity > 0.7:
-                        logger.debug(
-                            "Skipping duplicate antibody (chromadb): %s...",
-                            error_pattern[:40],
-                        )
-                        return False
+                    for i, meta in enumerate(results["metadatas"][0]):
+                        if (meta and meta.get("code") == antibody_code
+                                and meta.get("error_pattern") == error_pattern):
+                            logger.debug("Skipping exact duplicate antibody (chromadb)")
+                            return False
+                    # Semantic dedup only for sufficiently long texts
+                    if len(query_text) >= 40:
+                        distance = (results.get("distances") or [[1.0]])[0][0]
+                        if distance < 0.5:
+                            logger.debug(
+                                "Skipping duplicate antibody (chromadb dist=%.3f): %s...",
+                                distance, error_pattern[:40])
+                            return False
             except Exception:
-                pass  # Proceed with store on query failure
+                pass
 
             self.collection.add(
                 documents=[context],
                 ids=[antibody_id],
-                metadatas=[{"error_pattern": error_pattern, "code": antibody_code}],
+                metadatas=[{
+                    "error_pattern": error_pattern,
+                    "code": antibody_code,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "last_matched": datetime.now(timezone.utc).isoformat(),
+                }],
             )
         else:
             stored = self._in_memory.store_antibody(error_pattern, antibody_code, context)
@@ -219,7 +285,7 @@ class ImmunologyMemory:
         return len(intersection) / len(union)
 
     def list_antibodies(self, limit: int = 50) -> list[dict]:
-        """List stored antibodies with metadata."""
+        """List stored antibodies with metadata including timestamps."""
         if self._backend == "chromadb":
             try:
                 data = self.collection.get(limit=limit)
@@ -234,6 +300,8 @@ class ImmunologyMemory:
                         "error_pattern": meta.get("error_pattern", "unknown"),
                         "code": meta.get("code", "")[:200],
                         "context": (doc or "")[:200],
+                        "created_at": meta.get("created_at", ""),
+                        "last_matched": meta.get("last_matched", ""),
                     })
                 return results
             except Exception as e:
@@ -271,8 +339,8 @@ class ImmunologyMemory:
         logger.info("Cleared %d antibodies", count)
         return count
 
-    def search_antibody(self, query: str) -> Optional[Dict[str, str]]:
-        """检索相似的历史错误及对应抗体。"""
+    def search_antibody(self, query: str) -> dict[str, str] | None:
+        """检索相似的历史错误及对应抗体。Updates last_matched on hit."""
         if self._backend == "chromadb":
             try:
                 results = self.collection.query(query_texts=[query], n_results=1)
@@ -280,6 +348,17 @@ class ImmunologyMemory:
                     metas = results.get("metadatas", [])
                     if metas and metas[0]:
                         meta = metas[0][0]
+                        # Update last_matched timestamp
+                        try:
+                            updated_meta = dict(meta)
+                            updated_meta["last_matched"] = (
+                                datetime.now(timezone.utc).isoformat())
+                            self.collection.update(
+                                ids=[results["ids"][0][0]],
+                                metadatas=[updated_meta],
+                            )
+                        except Exception as e:
+                            logger.debug("Failed to update last_matched: %s", e)
                         return {
                             "code": meta.get("code", ""),
                             "pattern": meta.get("error_pattern", ""),
@@ -297,6 +376,48 @@ class ImmunologyMemory:
             except Exception:
                 return 0
         return self._in_memory.count()
+
+    def _auto_decay(self) -> None:
+        """Run decay at startup to prune old antibodies. Silently handles empty stores."""
+        try:
+            removed = self.decay(ttl_days=30, prune_unmatched_days=90)
+            if removed:
+                logger.info("Auto-decay removed %d old antibodies at startup", removed)
+        except Exception:
+            pass
+
+    def decay(self, ttl_days: int = 30, prune_unmatched_days: int = 90) -> int:
+        """Remove antibodies past TTL or not matched recently. Returns count removed."""
+        if self._backend == "chromadb":
+            try:
+                data = self.collection.get()
+                if not data or not data.get("ids"):
+                    return 0
+                now = time.time()
+                ttl_sec = ttl_days * 86400
+                unmatched_sec = prune_unmatched_days * 86400
+                to_delete = []
+                for i, doc_id in enumerate(data["ids"]):
+                    metadatas = data.get("metadatas") or [{}]
+                    meta = metadatas[i] if i < len(metadatas) else {}
+                    created_str = meta.get("created_at", "")
+                    last_str = meta.get("last_matched", "")
+                    created = (
+                        datetime.fromisoformat(created_str).timestamp()
+                        if created_str else now)
+                    last = (
+                        datetime.fromisoformat(last_str).timestamp()
+                        if last_str else now)
+                    if (now - created) >= ttl_sec or (now - last) >= unmatched_sec:
+                        to_delete.append(doc_id)
+                if to_delete:
+                    self.collection.delete(ids=to_delete)
+                    logger.info("ChromaDB decay: removed %d antibodies", len(to_delete))
+                return len(to_delete)
+            except Exception as e:
+                logger.warning("Failed to decay chromadb: %s", e)
+                return 0
+        return self._in_memory.decay(ttl_days, prune_unmatched_days)
 
 
 # 全局单例

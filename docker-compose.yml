@@ -14,6 +14,9 @@ services:
   immune-agent-interactive:
     build: .
     container_name: symbiotic-immune-agent-interactive
+    depends_on:
+      immune-agent:
+        condition: service_started
     env_file:
       - .env
     volumes:
@@ -24,3 +27,61 @@ services:
     stdin_open: true
     tty: true
     command: python immune_agent.py --interactive
+
+  immune-agent-api:
+    build: .
+    container_name: symbiotic-immune-agent-api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      immune-agent:
+        condition: service_started
+    volumes:
+      - ./.immune_db:/app/.immune_db
+      - ./logs:/app/logs
+      - ./escalations:/app/escalations
+      - ~/.cache/chroma:/home/agent/.cache/chroma
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  immune-agent-web:
+    build: .
+    container_name: symbiotic-immune-agent-web
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
+    depends_on:
+      immune-agent-api:
+        condition: service_started
+    volumes:
+      - ./.immune_db:/app/.immune_db
+      - ./logs:/app/logs
+      - ./escalations:/app/escalations
+      - ~/.cache/chroma:/home/agent/.cache/chroma
+    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501').status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

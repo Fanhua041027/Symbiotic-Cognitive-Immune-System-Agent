@@ -1,1 +1,1 @@
-# Symbiotic Cognitive Immune System Agent - Core Module
+"""Symbiotic Cognitive Immune System Agent - Core Module."""

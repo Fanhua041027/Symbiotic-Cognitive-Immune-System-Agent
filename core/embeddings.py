@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import onnxruntime
@@ -34,8 +34,8 @@ class LocalOnnxEmbeddingFunction:
     MODEL_NAME = "all-MiniLM-L6-v2"
 
     def __init__(self) -> None:
-        self._model: Optional[onnxruntime.InferenceSession] = None
-        self._tokenizer: Optional[Tokenizer] = None
+        self._model: onnxruntime.InferenceSession | None = None
+        self._tokenizer: Tokenizer | None = None
         self._dimension: int = 384  # all-MiniLM-L6-v2 output dimension
         self._model_path = MODEL_PATH
         self._tokenizer_path = TOKENIZER_PATH
@@ -45,16 +45,16 @@ class LocalOnnxEmbeddingFunction:
         return "local_all_MiniLM_L6_v2"
 
     @staticmethod
-    def build_from_config(config: Dict[str, Any]) -> "LocalOnnxEmbeddingFunction":
+    def build_from_config(config: dict[str, Any]) -> "LocalOnnxEmbeddingFunction":
         return LocalOnnxEmbeddingFunction()
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         return {"model_name": self.MODEL_NAME}
 
     def is_legacy(self) -> bool:
         return False
 
-    def embed_query(self, input: List[str]) -> List[List[float]]:
+    def embed_query(self, input: list[str]) -> list[list[float]]:
         return self.__call__(input)
 
     def default_space(self) -> str:
@@ -91,13 +91,15 @@ class LocalOnnxEmbeddingFunction:
                     cfg = json.load(f)
                 max_len = cfg.get("max_position_embeddings", 256)
                 self._tokenizer.enable_truncation(max_length=max_len)
-                self._tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=max_len)
+                self._tokenizer.enable_padding(
+                pad_id=0, pad_token="[PAD]", length=max_len
+            )
             except Exception as e:
                 logger.warning("Failed to read config.json: %s", e)
                 self._tokenizer.enable_truncation(max_length=256)
                 self._tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
 
-    def __call__(self, input: List[str]) -> List[List[float]]:
+    def __call__(self, input: list[str]) -> list[list[float]]:
         self._ensure_loaded()
         assert self._model is not None
         assert self._tokenizer is not None

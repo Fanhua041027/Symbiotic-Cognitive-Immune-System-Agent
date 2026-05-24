@@ -37,18 +37,26 @@ show_summary()
 if config_warnings:
     provider = os.getenv("LLM_PROVIDER", "openai")
     if provider == "deepseek":
-        has_critical = any(w.startswith("MISSING: DEEPSEEK_API_KEY") for w in config_warnings)
+        has_critical = any(
+            w.startswith("MISSING: DEEPSEEK_API_KEY") for w in config_warnings)
     elif provider == "custom":
-        has_critical = any(w.startswith("MISSING: CUSTOM_API_KEY") for w in config_warnings)
+        has_critical = any(
+            w.startswith("MISSING: CUSTOM_API_KEY") for w in config_warnings)
     else:
-        has_critical = any(w.startswith("MISSING: OPENAI_API_KEY") for w in config_warnings)
+        has_critical = any(
+            w.startswith("MISSING: OPENAI_API_KEY") for w in config_warnings)
     if has_critical and __name__ == "__main__":
         # Only bail for commands that need the API key
         if len(sys.argv) > 1 and sys.argv[1] in ("-s", "--stats", "-g", "--graph"):
             pass  # stats/graph don't need API key
         else:
+            key_name = (
+                "DEEPSEEK_API_KEY" if provider == "deepseek"
+                else "CUSTOM_API_KEY" if provider == "custom"
+                else "OPENAI_API_KEY"
+            )
             logger.error(
-                f"{'DEEPSEEK_API_KEY' if provider == 'deepseek' else 'CUSTOM_API_KEY' if provider == 'custom' else 'OPENAI_API_KEY'} is not set. "
+                f"{key_name} is not set. "
                 "Copy .env.example to .env and fill in your API key."
             )
             sys.exit(1)
@@ -69,6 +77,7 @@ def run_single_query(
     import concurrent.futures
     import signal
     import time as _time
+    import uuid
 
     from core.agent_session import get_session
     from core.escalation import escalation
@@ -79,6 +88,7 @@ def run_single_query(
     # Reset per-query state to prevent cross-query bleeding
     escalation.reset()
 
+    request_id = uuid.uuid4().hex[:12]
     config = {"recursion_limit": max(30, cfg("MAX_ITERATIONS", 5) * 6 + 6)}
     initial_state: ImmunologyState = {
         "user_query": query,
@@ -90,6 +100,7 @@ def run_single_query(
         "validation_status": None,
         "iteration_count": 0,
         "escalation_report": None,
+        "request_id": request_id,
         "workflow_trace": [],
     }
 
@@ -128,14 +139,20 @@ def run_single_query(
 
     except TimeoutError_ as e:
         logger.error("Workflow timed out: %s", e)
-        error_result = {"final_output": None, "error": str(e), "user_query": query}
+        error_result = {
+            "final_output": None, "error": str(e),
+            "user_query": query, "request_id": request_id,
+        }
         metrics.record_query(error_result)
         if record_session:
             get_session().record_turn(error_result)
         return error_result
     except Exception as e:
-        logger.error("Workflow interrupted: %s", e)
-        error_result = {"final_output": None, "error": str(e), "user_query": query}
+        logger.error("Workflow interrupted (req=%s): %s", request_id, e)
+        error_result = {
+            "final_output": None, "error": str(e),
+            "user_query": query, "request_id": request_id,
+        }
         metrics.record_query(error_result)
         if record_session:
             get_session().record_turn(error_result)
@@ -305,6 +322,17 @@ def show_stats() -> None:
         print(f"    Stored Antibodies : {count}")
     except Exception as e:
         print(f"\n  Immune Memory: error reading ({e})")
+
+    # Circuit breaker status
+    try:
+        from core.circuit_breaker import breaker
+        cb_status = breaker.all_status()
+        if cb_status:
+            print("\n  Circuit Breakers:")
+            for name, st in cb_status.items():
+                print(f"    {name:14s} state={st['state']:10s} failures={st['failures']}")
+    except Exception:
+        pass
 
     # Config summary
     print("\n  Configuration:")

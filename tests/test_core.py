@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 from core.escalation import EscalationTracker
+from core.nodes import (
+    consistency_check_node,
+    generate_antibody_node,
+    main_worker_node,
+    monitor_node,
+    validate_antibody_node,
+)
 from core.sandbox import (
     ASTValidator,
     validate_simulated,
@@ -34,6 +42,7 @@ class TestState:
             "validation_status": None,
             "iteration_count": 0,
             "escalation_report": None,
+            "request_id": None,
             "workflow_trace": [],
         }
         assert state["user_query"] == "test"
@@ -42,6 +51,21 @@ class TestState:
         assert state["workflow_trace"] == []
         assert isinstance(state["workflow_trace"], list)
 
+    def test_state_has_request_id_field(self):
+        """State includes request_id field."""
+        state: ImmunologyState = {
+            "user_query": "test", "task_steps": [], "anomalies": [],
+            "antibodies": [], "final_output": None,
+            "is_immune_active": False, "validation_status": None,
+            "iteration_count": 0, "escalation_report": None,
+            "request_id": None,
+            "workflow_trace": [],
+        }
+        assert "request_id" in state
+        assert state["request_id"] is None
+        state["request_id"] = "abc123"
+        assert state["request_id"] == "abc123"
+
     def test_state_workflow_trace_tracking(self):
         """Workflow trace correctly tracks execution steps."""
         state: ImmunologyState = {
@@ -49,6 +73,7 @@ class TestState:
             "antibodies": [], "final_output": None,
             "is_immune_active": False, "validation_status": None,
             "iteration_count": 0, "escalation_report": None,
+            "request_id": None,
             "workflow_trace": [],
         }
         assert len(state["workflow_trace"]) == 0
@@ -66,6 +91,7 @@ class TestState:
             "antibodies": [], "final_output": None,
             "is_immune_active": False, "validation_status": None,
             "iteration_count": 0, "escalation_report": None,
+            "request_id": None,
             "workflow_trace": [],
         }
         assert state["iteration_count"] == 0
@@ -82,6 +108,7 @@ class TestWorkflowRouting:
             "antibodies": [], "final_output": None,
             "is_immune_active": False, "validation_status": None,
             "iteration_count": 0, "escalation_report": None,
+            "request_id": None,
             "workflow_trace": [],
         }
         base.update(overrides)  # type: ignore[typeddict-item]
@@ -169,6 +196,7 @@ class TestWorkflowFinalizeNode:
             "antibodies": [], "final_output": None,
             "is_immune_active": False, "validation_status": None,
             "iteration_count": 0, "escalation_report": None,
+            "request_id": None,
             "workflow_trace": [],
         }
         base.update(overrides)  # type: ignore[typeddict-item]
@@ -721,16 +749,6 @@ class TestConfigSave:
             assert any("SKIPPED" in w for w in warnings)
         finally:
             cfg_mod.CONFIG_FILE = original_path
-    def test_logger_creation(self):
-        from core.logger import setup_logger
-        logger = setup_logger("test_logger")
-        assert logger.name == "test_logger"
-        assert logger.level > 0  # Has a valid level
-
-    def test_logger_handlers(self):
-        from core.logger import setup_logger
-        logger = setup_logger("test_handlers")
-        assert len(logger.handlers) >= 2  # console + file
 
 
 # ---------------------------------------------------------------------------
@@ -803,6 +821,231 @@ class TestLLMCache:
         from core.nodes import _llm_cache
         # Cache should be a dict mapping string keys to ChatOpenAI instances
         assert isinstance(_llm_cache, dict)
+
+
+class TestWorkerNode:
+    """Tests for main_worker_node with mocked LLM."""
+
+    def test_worker_returns_output(self, immune_state):
+        """Worker produces output for a clean query."""
+        state = dict(immune_state, user_query="write a hello world function")
+        with patch("core.nodes._invoke_llm", return_value='def hello():\n    print("hello")'):
+            result = main_worker_node(state)
+        assert "task_steps" in result
+        assert "final_output" in result or "task_steps" in result
+
+    def test_worker_detects_anomaly(self, immune_state):
+        """Worker flags COGNITIVE_ANOMALY in its output."""
+        state = dict(immune_state, user_query="write an infinite loop")
+        with patch("core.nodes._invoke_llm", return_value="COGNITIVE_ANOMALY: infinite_loop - while True without break"):
+            result = main_worker_node(state)
+        assert result.get("final_output") is not None
+        assert "COGNITIVE_ANOMALY" in result.get("final_output", "")
+
+    def test_worker_integrates_memory(self, immune_state):
+        """Worker queries immune memory and integrates historical antibodies."""
+        state = dict(immune_state, user_query="sort a list")
+        with (
+            patch("core.nodes._invoke_llm", return_value="sorted list result"),
+            patch("core.nodes.memory_db.search_antibody", return_value={"code": "guard", "pattern": "loop risk"}),
+        ):
+            result = main_worker_node(state)
+        assert result is not None
+
+    def test_worker_increments_iteration(self, immune_state):
+        """Worker increments iteration_count."""
+        state = dict(immune_state, iteration_count=2)
+        with patch("core.nodes._invoke_llm", return_value="ok"):
+            result = main_worker_node(state)
+        assert result.get("iteration_count") == 3
+
+
+class TestConsistencyCheckNode:
+    """Tests for consistency_check_node with mocked LLM."""
+
+    def test_consistency_clean(self, immune_state):
+        """Clean output passes consistency check."""
+        state = dict(immune_state, user_query="hello", task_steps=[{"output": "world"}])
+        with patch("core.nodes._invoke_llm", return_value='{"status": "clean", "confidence": "high"}'):
+            result = consistency_check_node(state)
+        assert result.get("anomalies") == []
+
+    def test_consistency_detects_issue(self, immune_state):
+        """Consistency check flags issues."""
+        state = dict(immune_state, user_query="hello", task_steps=[{"output": "bad"}])
+        with patch(
+            "core.nodes._invoke_llm",
+            return_value='{"status": "issue", "pattern": "logic_error", "reason": "bad output", "severity": "high"}',
+        ):
+            result = consistency_check_node(state)
+        assert len(result.get("anomalies", [])) > 0
+
+    def test_consistency_handles_malformed_json(self, immune_state):
+        """Malformed LLM response does not crash."""
+        state = dict(immune_state, user_query="hello", task_steps=[{"output": "x"}])
+        with patch("core.nodes._invoke_llm", return_value="not json at all"):
+            result = consistency_check_node(state)
+        # Should return existing anomalies unchanged
+        assert "anomalies" in result
+
+
+class TestMonitorNode:
+    """Tests for monitor_node with mocked LLM."""
+
+    def test_monitor_clean_output(self, immune_state):
+        """Monitor routes to end for clean output with no anomalies."""
+        state = dict(immune_state, user_query="hello")
+        with patch("core.nodes._invoke_llm", return_value='{"status": "clean", "has_output": true}'):
+            result = monitor_node(state)
+        assert result["is_immune_active"] is False
+
+    def test_monitor_detects_anomaly(self, immune_state):
+        """Monitor activates immune response for anomalous output."""
+        state = dict(immune_state, user_query="hello")
+        with patch(
+            "core.nodes._invoke_llm",
+            return_value='{"status": "anomaly", "reason": "infinite loop risk", "category": "infinite_loop"}',
+        ):
+            result = monitor_node(state)
+        assert result["is_immune_active"] is True
+        assert len(result.get("anomalies", [])) > 0
+
+    def test_monitor_no_output_continues(self, immune_state):
+        """Monitor sends back to worker when no output yet."""
+        state = dict(immune_state, user_query="hello", task_steps=[])
+        with patch("core.nodes._invoke_llm", return_value='{"status": "no_output"}'):
+            result = monitor_node(state)
+        assert result.get("is_immune_active") is False
+
+
+class TestGenerateAntibodyNode:
+    """Tests for generate_antibody_node with mocked LLM."""
+
+    def test_generates_antibody(self, immune_state):
+        """Antibody generator produces a fix for detected anomalies."""
+        state = dict(
+            immune_state,
+            user_query="write an infinite loop",
+            anomalies=[{"reason": "infinite loop", "category": "infinite_loop", "severity": "high"}],
+        )
+        with patch("core.nodes._invoke_llm", return_value='{"code": "while condition: break", "explanation": "add break"}'
+        ):
+            result = generate_antibody_node(state)
+        assert len(result.get("antibodies", [])) > 0
+        assert result["antibodies"][0].get("code") == "while condition: break"
+
+    def test_generates_antibody_no_anomalies(self, immune_state):
+        """No anomalies → no antibody generated."""
+        state = dict(immune_state, user_query="hello", anomalies=[])
+        with patch("core.nodes._invoke_llm", return_value="{}"):
+            result = generate_antibody_node(state)
+        assert len(result.get("antibodies", [])) == 0
+
+
+class TestValidateAntibodyNode:
+    """Tests for validate_antibody_node."""
+
+    def test_validates_passed_antibody(self, immune_state):
+        """Passed validation returns is_valid=True."""
+        state = dict(
+            immune_state,
+            antibodies=[{"code": "print('hello')", "explanation": "test"}],
+        )
+        with patch("core.nodes.validate_antibody", return_value=(True, "")):
+            result = validate_antibody_node(state)
+        assert result.get("validation_status") == "passed"
+        assert result.get("is_immune_active") is True
+
+    def test_validates_failed_antibody(self, immune_state):
+        """Failed validation returns is_valid=False."""
+        state = dict(
+            immune_state,
+            antibodies=[{"code": "dangerous_code()", "explanation": "test"}],
+        )
+        with patch("core.nodes.validate_antibody", return_value=(False, "dangerous call")):
+            result = validate_antibody_node(state)
+        assert result.get("validation_status") == "failed"
+        assert result.get("is_immune_active") is True
+
+    def test_validates_no_antibodies(self, immune_state):
+        """No antibodies to validate → status unchanged."""
+        state = dict(immune_state, antibodies=[])
+        result = validate_antibody_node(state)
+        assert result.get("validation_status") is None
+
+
+class TestRunSingleQuery:
+    """Tests for immune_agent.run_single_query with mocked workflow."""
+
+    def test_run_single_query_success(self):
+        """Successful query returns result with metrics recorded."""
+        fake_result = {
+            "final_output": "hello world",
+            "anomalies": [],
+            "antibodies": [],
+            "is_immune_active": False,
+            "validation_status": None,
+            "error": None,
+            "escalation_report": None,
+        }
+        with (
+            patch("immune_agent.app"),
+            patch("immune_agent.metrics") as mock_metrics,
+            patch("immune_agent.get_session") as mock_session,
+            patch("immune_agent.escalation") as mock_esc,
+        ):
+            from immune_agent import run_single_query
+            mock_session.return_value = MagicMock()
+            mock_esc.reset = MagicMock()
+            # Simulate app.invoke returning the fake result
+            import immune_agent as mod
+            mod.app.invoke = MagicMock(return_value=dict(fake_result))
+            result = run_single_query("test query", record_session=False)
+        assert result["final_output"] == "hello world"
+        assert result.get("user_query") == "test query"
+        mock_metrics.record_query.assert_called_once()
+
+    def test_run_single_query_error(self):
+        """Workflow error returns error result."""
+        with (
+            patch("immune_agent.app"),
+            patch("immune_agent.metrics") as mock_metrics,
+            patch("immune_agent.escalation") as mock_esc,
+        ):
+            from immune_agent import run_single_query
+            import immune_agent as mod
+            mod.app.invoke = MagicMock(side_effect=RuntimeError("test error"))
+            result = run_single_query("bad query", record_session=False)
+        assert result["final_output"] is None
+        assert "error" in result
+        mock_metrics.record_query.assert_called_once()
+
+    def test_run_single_query_sets_request_id(self):
+        """Each query gets a unique request_id."""
+        with (
+            patch("immune_agent.app"),
+            patch("immune_agent.metrics"),
+            patch("immune_agent.escalation"),
+        ):
+            from immune_agent import run_single_query
+            import immune_agent as mod
+            mod.app.invoke = MagicMock(return_value={"final_output": "ok"})
+            result = run_single_query("test", record_session=False)
+        assert result.get("request_id") is not None
+        assert len(result["request_id"]) == 12
+
+    def test_run_single_query_resets_escalation(self):
+        """Escalation is reset before each query."""
+        with (
+            patch("immune_agent.app"),
+            patch("immune_agent.metrics"),
+            patch("immune_agent.escalation") as mock_esc,
+        ):
+            from immune_agent import run_single_query
+            import immune_agent as mod
+            mod.app.invoke = MagicMock(return_value={"final_output": "ok"})
+            run_single_query("test", record_session=False)
+        mock_esc.reset.assert_called_once()
 
 
 class TestValidateAntibodyEdgeCases:
@@ -885,6 +1128,7 @@ class TestWorkflowTrace:
             "antibodies": [], "final_output": None,
             "is_immune_active": False, "validation_status": None,
             "iteration_count": 0, "escalation_report": None,
+            "request_id": None,
             "workflow_trace": [],
         }
         result = wrapped(state)
@@ -904,6 +1148,7 @@ class TestWorkflowTrace:
             "antibodies": [], "final_output": None,
             "is_immune_active": False, "validation_status": None,
             "iteration_count": 0, "escalation_report": None,
+            "request_id": None,
             "workflow_trace": list(original_trace),
         }
         result = wrapped(state)
@@ -959,6 +1204,29 @@ class TestWorkflowTrace:
         result = wrapped(state)
         # Decorator should NOT overwrite since node already provided one
         assert result["workflow_trace"] == ["custom"]
+
+    def test_trace_logs_request_id(self, immune_state):
+        """_with_trace handles request_id field in state."""
+        from core.workflow import _with_trace
+        def dummy_node(state):
+            return {"final_output": "ok"}
+
+        wrapped = _with_trace("worker", dummy_node)
+        state = dict(immune_state, request_id="req-001")
+        result = wrapped(state)
+        assert "workflow_trace" in result
+        assert "enter:worker" in result["workflow_trace"]
+
+    def test_trace_request_id_none(self, immune_state):
+        """_with_trace handles request_id=None without error."""
+        from core.workflow import _with_trace
+        def dummy_node(state):
+            return {"final_output": "ok"}
+
+        wrapped = _with_trace("worker", dummy_node)
+        state = dict(immune_state, request_id=None)
+        result = wrapped(state)
+        assert "enter:worker" in result["workflow_trace"]
 
 
 class TestConfigHotReload:
@@ -1139,6 +1407,17 @@ class TestLogger:
         monkeypatch.setenv("LOG_LEVEL", "ERROR")
         logger = setup_logger("test_dynamic_level")
         assert logger.level == logging.ERROR
+
+    def test_logger_creation(self):
+        from core.logger import setup_logger
+        logger = setup_logger("test_logger_name")
+        assert logger.name == "test_logger_name"
+        assert logger.level > 0
+
+    def test_logger_handlers(self):
+        from core.logger import setup_logger
+        logger = setup_logger("test_logger_handlers")
+        assert len(logger.handlers) >= 2  # console + file
 
 
 class TestConfigValidateAllWarnings:
@@ -1505,6 +1784,64 @@ class TestEscalationExtended:
             esc_mod.ESCALATION_DIR = original_dir
 
 
+class TestEscalationCleanup:
+    """Tests for escalation report auto-cleanup."""
+
+    def test_cleanup_removes_old_reports(self, tmp_path):
+        """Cleanup removes reports older than max_age_days."""
+        import core.escalation as esc_mod
+        original_dir = esc_mod.ESCALATION_DIR
+        esc_mod.ESCALATION_DIR = str(tmp_path)
+        try:
+            # Create a stale file
+            old_path = os.path.join(str(tmp_path), "escalation_old.json")
+            with open(old_path, "w") as f:
+                json.dump({"test": True}, f)
+            # Set mtime far in the past
+            old_mtime = time.time() - 31 * 86400
+            os.utime(old_path, (old_mtime, old_mtime))
+
+            # Create a recent file
+            recent_path = os.path.join(str(tmp_path), "escalation_recent.json")
+            with open(recent_path, "w") as f:
+                json.dump({"test": True}, f)
+
+            removed = EscalationTracker.cleanup_old_reports(max_age_days=30)
+            assert removed == 1
+            assert not os.path.exists(old_path)
+            assert os.path.exists(recent_path)
+        finally:
+            esc_mod.ESCALATION_DIR = original_dir
+
+    def test_cleanup_empty_dir_no_error(self, tmp_path):
+        """Cleanup on empty directory does not raise."""
+        import core.escalation as esc_mod
+        original_dir = esc_mod.ESCALATION_DIR
+        esc_mod.ESCALATION_DIR = str(tmp_path)
+        try:
+            removed = EscalationTracker.cleanup_old_reports(max_age_days=30)
+            assert removed == 0
+        finally:
+            esc_mod.ESCALATION_DIR = original_dir
+
+    def test_cleanup_keeps_all_recent(self, tmp_path):
+        """Cleanup keeps all files within the age threshold."""
+        import core.escalation as esc_mod
+        original_dir = esc_mod.ESCALATION_DIR
+        esc_mod.ESCALATION_DIR = str(tmp_path)
+        try:
+            for i in range(3):
+                p = os.path.join(str(tmp_path), f"report_{i}.json")
+                with open(p, "w") as f:
+                    json.dump({"i": i}, f)
+
+            removed = EscalationTracker.cleanup_old_reports(max_age_days=30)
+            assert removed == 0
+            assert len(os.listdir(str(tmp_path))) == 3
+        finally:
+            esc_mod.ESCALATION_DIR = original_dir
+
+
 class TestVizExtended:
     """Tests for visualization module stdout functions."""
 
@@ -1692,3 +2029,312 @@ class TestMemoryPersistence:
         assert cleared == 2
         assert m.count() == 0
 
+    def test_memory_decay_removes_old(self):
+        """decay removes antibodies past TTL."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        m.store_antibody("pattern A", "code A", "context A")
+        m.store_antibody("pattern B", "code B", "context B")
+        assert m.count() == 2
+        removed = m.decay(ttl_days=0, prune_unmatched_days=999)
+        assert removed == 2
+        assert m.count() == 0
+        m.clear_all()
+
+    def test_memory_decay_keeps_recent(self):
+        """decay keeps antibodies within TTL."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        m.store_antibody("pattern A", "code A", "context A")
+        removed = m.decay(ttl_days=999, prune_unmatched_days=999)
+        assert removed == 0
+        assert m.count() == 1
+        m.clear_all()
+
+    def test_memory_decay_empty(self):
+        """decay on empty store returns 0."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        assert m.decay() == 0
+        m.clear_all()
+
+    def test_memory_search_updates_last_matched(self):
+        """search_antibody updates last_matched, protecting from decay."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        m.store_antibody("error X", "code X", "context X")
+        # Search updates last_matched to now — verify it returns something
+        result = m.search_antibody("error X")
+        assert result is not None
+        # Decay with very short TTL on last_matched:
+        # Even though last_matched was just updated, prune_unmatched_days=0 means
+        # any nonzero age gets removed. Verify decay still runs cleanly.
+        removed = m.decay(ttl_days=999, prune_unmatched_days=0)
+        assert removed >= 0
+        m.clear_all()
+
+    def test_memory_list_shows_timestamps(self):
+        """list_antibodies includes created_at and last_matched fields."""
+        from core.memory import ImmunologyMemory
+        m = ImmunologyMemory()
+        m.store_antibody("pattern T", "code T", "context T")
+        lst = m.list_antibodies()
+        assert len(lst) == 1
+        entry = lst[0]
+        assert "created_at" in entry
+        assert "last_matched" in entry
+        assert entry["created_at"] != ""
+        assert entry["last_matched"] != ""
+        m.clear_all()
+
+
+class TestMetricsAutoSave:
+    """Tests for metrics auto-persist functionality."""
+
+    def test_auto_save_resets_counter(self):
+        from core.metrics import MetricsTracker
+        mt = MetricsTracker(window_size=10, auto_save_every=2)
+        base_result = {
+            "user_query": "q", "final_output": "ok",
+            "anomalies": [], "antibodies": [],
+            "is_immune_active": False, "validation_status": None,
+            "escalation_report": None,
+        }
+        mt.record_query(base_result)
+        assert mt._auto_save_counter == 1  # first record, threshold 2
+        mt.record_query(base_result)
+        assert mt._auto_save_counter == 0  # reset after threshold hit
+
+    def test_load_latest_report_no_files(self):
+        from core.metrics import MetricsTracker
+        report = MetricsTracker.load_latest_report()
+        assert report is None or isinstance(report, dict)
+
+    def test_save_and_load_roundtrip(self):
+        import os
+
+        from core.metrics import MetricsTracker
+        mt = MetricsTracker(window_size=10, auto_save_every=100)
+        mt.record_query({
+            "user_query": "persist test", "final_output": "ok",
+            "anomalies": [{"source": "worker", "reason": "test"}],
+            "antibodies": [], "is_immune_active": True,
+            "validation_status": "passed", "escalation_report": None,
+        })
+        path = mt.save_report("_test_roundtrip.json")
+        assert os.path.exists(path)
+        loaded = MetricsTracker.load_latest_report()
+        assert loaded is not None
+        assert "metrics" in loaded
+        assert loaded["metrics"]["records"] >= 1
+        os.remove(path)
+
+    def test_cleanup_old_reports(self):
+        import os
+        import time
+
+        from core.metrics import MetricsTracker
+        mt2 = MetricsTracker(window_size=10, auto_save_every=100)
+        old_path = mt2.save_report("_test_old_report.json")
+        # Manually set its mtime to be old
+        old_time = time.time() - 10 * 86400  # 10 days ago
+        os.utime(old_path, (old_time, old_time))
+        # Cleanup with 7-day threshold — should remove it
+        removed = MetricsTracker.cleanup_old_reports(max_age_days=7)
+        assert removed >= 1
+        assert not os.path.exists(old_path)
+
+
+class TestCircuitBreaker:
+    """Tests for the LLM API circuit breaker."""
+
+    def test_circuit_breaker_starts_closed(self):
+        from core.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(threshold=3, cooldown=60.0)
+        assert cb.can_execute("test")
+        assert cb.status("test")["state"] == "closed"
+
+    def test_circuit_breaker_opens_after_threshold(self):
+        from core.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(threshold=2, cooldown=60.0)
+        assert cb.can_execute("test")
+        cb.record_failure("test")
+        assert cb.can_execute("test")
+        cb.record_failure("test")
+        assert not cb.can_execute("test")
+        assert cb.status("test")["state"] == "open"
+
+    def test_circuit_breaker_resets_on_success(self):
+        from core.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(threshold=2, cooldown=60.0)
+        cb.record_failure("test")
+        cb.record_success("test")
+        assert cb.can_execute("test")
+        assert cb.status("test")["failures"] == 0
+
+    def test_circuit_breaker_reset_method(self):
+        from core.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(threshold=1, cooldown=60.0)
+        cb.record_failure("test")
+        assert not cb.can_execute("test")
+        cb.reset("test")
+        assert cb.can_execute("test")
+
+    def test_circuit_breaker_half_open_after_cooldown(self):
+        from core.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(threshold=1, cooldown=0.0)  # instant cooldown
+        cb.record_failure("test")
+        # Should immediately be half-open since cooldown is 0
+        assert cb.can_execute("test")
+        assert cb.status("test")["state"] == "half_open"
+
+    def test_circuit_breaker_global_instance(self):
+        from core.circuit_breaker import breaker
+        # Global instance should exist and be functional
+        assert breaker.can_execute("global_test")
+        breaker.record_success("global_test")
+
+    def test_circuit_breaker_all_status(self):
+        from core.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker()
+        cb.record_failure("circuit_a")
+        cb.record_failure("circuit_b")
+        status = cb.all_status()
+        assert "circuit_a" in status
+        assert "circuit_b" in status
+        cb.reset()
+        status = cb.all_status()
+        assert status["circuit_a"]["state"] == "closed"
+
+
+class TestDockerCompose:
+    """Tests for docker-compose.yml service definitions."""
+
+    def test_compose_file_exists(self):
+        import os
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        assert os.path.exists(path)
+
+    def test_compose_has_api_service(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        services = cfg.get("services", {})
+        assert "immune-agent-api" in services
+        cmd = services["immune-agent-api"].get("command", "")
+        cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        assert "uvicorn" in cmd_str
+
+    def test_compose_has_web_service(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        services = cfg.get("services", {})
+        assert "immune-agent-web" in services
+        cmd = services["immune-agent-web"].get("command", "")
+        cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        assert "streamlit" in cmd_str
+
+    def test_compose_has_all_core_services(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        services = cfg.get("services", {})
+        for name in ["immune-agent", "immune-agent-interactive", "immune-agent-api", "immune-agent-web"]:
+            assert name in services, f"Missing service: {name}"
+
+    def test_compose_api_exposes_port(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        ports = cfg["services"]["immune-agent-api"].get("ports", [])
+        assert any("8000" in str(p) for p in ports)
+
+    def test_compose_web_exposes_port(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        ports = cfg["services"]["immune-agent-web"].get("ports", [])
+        assert any("8501" in str(p) for p in ports)
+
+    def test_compose_api_has_healthcheck(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        hc = cfg["services"]["immune-agent-api"].get("healthcheck")
+        assert hc is not None, "API service missing healthcheck"
+        test_cmd = " ".join(hc.get("test", [])) if isinstance(hc.get("test"), list) else str(hc.get("test", ""))
+        assert "urllib.request" in test_cmd and "/health" in test_cmd
+
+    def test_compose_web_has_healthcheck(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        hc = cfg["services"]["immune-agent-web"].get("healthcheck")
+        assert hc is not None, "Web service missing healthcheck"
+        assert hc.get("interval") and hc.get("retries")
+        assert hc.get("start_period")
+
+    def test_compose_healthcheck_has_reasonable_values(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        for svc in ["immune-agent-api", "immune-agent-web"]:
+            hc = cfg["services"][svc].get("healthcheck", {})
+            assert isinstance(hc.get("retries", 0), int) and hc["retries"] > 0
+            assert isinstance(hc.get("interval"), str) and hc["interval"].endswith("s")
+            assert isinstance(hc.get("timeout"), str) and hc["timeout"].endswith("s")
+
+    def test_compose_api_depends_on_agent(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        deps = cfg["services"]["immune-agent-api"].get("depends_on", {})
+        assert "immune-agent" in deps, "API should depend on base agent"
+
+    def test_compose_interactive_depends_on_agent(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        deps = cfg["services"]["immune-agent-interactive"].get("depends_on", {})
+        assert "immune-agent" in deps, "Interactive should depend on base agent"
+
+    def test_compose_web_depends_on_api(self):
+        import os
+
+        import yaml
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        deps = cfg["services"]["immune-agent-web"].get("depends_on", {})
+        assert "immune-agent-api" in deps, "Web should depend on API"

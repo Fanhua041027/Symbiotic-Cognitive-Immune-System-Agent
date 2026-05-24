@@ -20,6 +20,7 @@ except ImportError:
 
 from core.config import get as cfg
 from core.logger import setup_logger
+from core.trace_render import render_trace as _render_trace
 from immune_agent import run_single_query
 
 logger = setup_logger("webui")
@@ -309,29 +310,6 @@ if "query_history" not in st.session_state:
     except Exception:
         st.session_state.query_history = []
 
-# Must be defined before tabs that call it
-TRACE_STYLES = {
-    "enter:worker": ("Worker", "#1a73e8"),
-    "enter:consistency_check": ("Consistency", "#f59e0b"),
-    "enter:monitor": ("Monitor", "#7c3aed"),
-    "enter:generate_antibody": ("Antibody Gen", "#0d9488"),
-    "enter:validate_antibody": ("Validator", "#6b7280"),
-}
-
-
-def _render_trace(trace: list[str]) -> str:
-    tags = []
-    for entry in trace:
-        label, color = TRACE_STYLES.get(entry, (entry, "#6b7280"))
-        tags.append(
-            f'<span style="background:{color};color:#fff;padding:2px 10px;'
-            f'border-radius:6px;font-size:0.8rem;white-space:nowrap;'
-            f'font-weight:500">{label}</span>'
-        )
-    arrow = '<span style="color:#9ca3af;padding:0 3px;font-size:1rem">→</span>'
-    return f'<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:0.4rem 0">{arrow.join(tags)}</div>'
-
-
 tabs = st.tabs(["Run Query", "History", "Memory", "Workflow", "Benchmark", "Metrics"])
 tq, th, tm, tg, tb, tmet = tabs
 
@@ -568,33 +546,19 @@ with tg:
     st.markdown("### System Workflow")
     try:
         from core.viz import generate_mermaid
-        st.code(generate_mermaid(), language="mermaid")
-        st.markdown("Copy into [mermaid.live](https://mermaid.live)")
+        mermaid_code = generate_mermaid()
+        html = f"""<div style="background:white;border-radius:12px;padding:1rem;margin-bottom:1rem">
+<div class="mermaid" style="display:flex;justify-content:center">
+{mermaid_code}
+</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({{startOnLoad:true,theme:'default',themeVariables:{{fontFamily:'Inter,sans-serif'}}}});</script>"""
+        st.components.v1.html(html, height=520)
+        with st.expander("Show raw Mermaid code"):
+            st.code(mermaid_code, language="mermaid")
     except Exception as e:
-        st.error(f"Error: {e}")
-    st.markdown("**Architecture**")
-    st.code(r"""
- User Input → [Worker] → [Monitor T-Cell]
-                            │
-              ┌─────────────┼──────────────┐
-              ▼             ▼              ▼
-           Healthy      Anomaly        Continue
-              │             │
-              │    [Antibody Generator]
-              │             │
-              │    [Sandbox Validator]
-              │          │       │
-              │       Passed   Failed
-              │          │       │
-              │          └───┬───┘
-              │              ▼
-              │         [Worker] (retry)
-              │              │
-              │         [Escalation] (≥N fails)
-              └──────────────┤
-                             ▼
-                          [END]
-""", language="text")
+        st.error(f"Error rendering graph: {e}")
 
 # ================================================================
 # TAB 5: Benchmark
@@ -602,47 +566,80 @@ with tg:
 with tb:
     st.markdown("### Benchmark")
     st.markdown("Run adversarial test cases to benchmark detection and recovery.")
+
+    # Initialize/resume benchmark state
     if st.button("Run Benchmark", type="primary"):
         from tests.adversarial import ADVERSARIAL_QUERIES
-        n_total = len(ADVERSARIAL_QUERIES)
-        prog = st.progress(0)
-        sts = st.empty()
+        st.session_state.bench_queries = list(ADVERSARIAL_QUERIES)
+        st.session_state.bench_idx = 0
+        st.session_state.bench_results = []
+        st.session_state.bench_stats = {"total": len(ADVERSARIAL_QUERIES), "detected": 0, "immune": 0, "dur": 0.0, "errors": 0}
+        st.session_state.bench_abort = False
+        st.rerun()
 
-        # Live stats (update in-place during run)
+    if "bench_idx" in st.session_state and st.session_state.bench_queries:
+        queries = st.session_state.bench_queries
+        n_total = len(queries)
+        idx = st.session_state.bench_idx
+
+        # Abort button (runs before each test, clickable between st.rerun calls)
+        c_abort, _ = st.columns([1, 6])
+        with c_abort:
+            if st.button("Abort", use_container_width=True):
+                st.session_state.bench_abort = True
+
+        if st.session_state.bench_abort:
+            st.warning(f"Benchmark aborted after {idx}/{n_total} tests")
+            st.session_state.bench_idx = n_total  # mark complete
+            st.session_state.bench_queries = None
+            st.rerun()
+
+        prog = st.progress(idx / n_total)
+
+        # Live stats
         live_cols = st.columns(4)
-        live_metrics = [c.empty() for c in live_cols]
-        table_placeholder = st.empty()
+        lc = [c.empty() for c in live_cols]
+        stats = st.session_state.bench_stats
+        dr = stats["detected"] / max(idx, 1) * 100
+        ir = stats["immune"] / max(stats["detected"], 1) * 100
+        lc[0].metric("Completed", f"{idx}/{n_total}")
+        lc[1].metric("Detected", f'{stats["detected"]} ({dr:.0f}%)')
+        lc[2].metric("Immune", f'{stats["immune"]} ({ir:.0f}%)')
+        lc[3].metric("Avg Time", f'{stats["dur"]/max(idx,1):.1f}s')
 
-        results = []
-        stats = {"total": n_total, "detected": 0, "immune": 0, "dur": 0.0}
-
-        for i, q in enumerate(ADVERSARIAL_QUERIES, 1):
-            sts.text(f"Test {i}/{n_total}: {q[:80]}...")
-            start = time.time()
-            r = run_single_query(q)
-            d = time.time() - start
-
-            has_anom = len(r.get("anomalies", [])) > 0
-            has_immune = r.get("is_immune_active", False)
-            if has_anom: stats["detected"] += 1
-            if has_immune: stats["immune"] += 1
-            stats["dur"] += d
-            results.append({"#": i, "Anomalies": "Yes" if has_anom else "—", "Immune": "Yes" if has_immune else "—", "Dur": f"{d:.1f}s"})
-
-            prog.progress(i / n_total)
-
-            # Live metrics update every iteration
-            dr = stats["detected"] / i * 100
-            ir = stats["immune"] / stats["detected"] * 100 if stats["detected"] > 0 else 0
-            live_metrics[0].metric("Completed", f"{i}/{n_total}")
-            live_metrics[1].metric("Detected", f'{stats["detected"]} ({dr:.0f}%)')
-            live_metrics[2].metric("Immune", f'{stats["immune"]} ({ir:.0f}%)')
-            live_metrics[3].metric("Avg Time", f'{stats["dur"]/i:.1f}s')
-
-            table_placeholder.dataframe(results[-30:], use_container_width=True)
-
-        sts.text("Done!")
-        st.toast(f"Benchmark: {stats['total']} tests, {stats['detected']} anomalies detected, {stats['immune']} immune responses", icon="📊")
+        if idx < n_total:
+            q = queries[idx]
+            sts = st.empty()
+            sts.text(f"Test {idx+1}/{n_total}: {q[:80]}...")
+            try:
+                r = run_single_query(q)
+            except Exception as e:
+                logger.error("Benchmark test %d failed: %s", idx+1, e)
+                stats["errors"] += 1
+                st.session_state.bench_results.append({"#": idx+1, "Anomalies": "ERR", "Immune": "—", "Dur": "—"})
+            else:
+                d = r.get("duration", 0.0)
+                has_anom = len(r.get("anomalies", [])) > 0
+                has_immune = r.get("is_immune_active", False)
+                if has_anom: stats["detected"] += 1
+                if has_immune: stats["immune"] += 1
+                stats["dur"] += d
+                st.session_state.bench_results.append({
+                    "#": idx+1, "Anomalies": "Yes" if has_anom else "—",
+                    "Immune": "Yes" if has_immune else "—", "Dur": f"{d:.1f}s",
+                })
+            st.session_state.bench_idx = idx + 1
+            st.rerun()
+        else:
+            st.success("Benchmark complete!")
+            st.toast(f"Benchmark: {stats['total']} tests, {stats['detected']} anomalies detected, {stats['immune']} immune responses", icon="📊")
+            st.dataframe(st.session_state.bench_results[-50:], use_container_width=True)
+            # Cleanup state
+            del st.session_state.bench_queries
+            del st.session_state.bench_idx
+            del st.session_state.bench_results
+            del st.session_state.bench_stats
+            del st.session_state.bench_abort
 
 # ================================================================
 # TAB 6: Metrics

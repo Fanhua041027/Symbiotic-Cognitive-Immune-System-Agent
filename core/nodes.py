@@ -6,6 +6,7 @@ import threading
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
+from core.circuit_breaker import breaker
 from core.config import get as cfg
 from core.logger import setup_logger
 from core.memory import memory_db
@@ -104,6 +105,76 @@ def get_monitor_llm() -> ChatOpenAI:
 
 def get_antibody_llm() -> ChatOpenAI:
     return _get_llm("antibody", "ANTIBODY_LLM_MODEL", 0.2)
+
+
+# Cached fallback LLM (lazy, built once from alternative provider)
+_fallback_llm: ChatOpenAI | None = None
+_fallback_llm_lock = threading.Lock()
+
+
+def _get_fallback_llm() -> ChatOpenAI | None:
+    global _fallback_llm
+    if _fallback_llm is not None:
+        return _fallback_llm
+    with _fallback_llm_lock:
+        if _fallback_llm is not None:
+            return _fallback_llm
+        provider = cfg("LLM_PROVIDER", "openai")
+        # Try a different provider as fallback
+        if provider == "deepseek" and cfg("OPENAI_API_KEY"):
+            _fallback_llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=cfg("LLM_TEMPERATURE", 0.7),
+                api_key=cfg("OPENAI_API_KEY"),
+                base_url=PROVIDER_ENDPOINTS["openai"],
+            )
+            logger.info("Fallback LLM: openai/gpt-4o-mini (for deepseek provider)")
+        elif provider == "openai" and cfg("DEEPSEEK_API_KEY"):
+            _fallback_llm = ChatOpenAI(
+                model="deepseek-chat",
+                temperature=cfg("LLM_TEMPERATURE", 0.7),
+                api_key=cfg("DEEPSEEK_API_KEY"),
+                base_url=PROVIDER_ENDPOINTS["deepseek"],
+            )
+            logger.info("Fallback LLM: deepseek/deepseek-chat (for openai provider)")
+        return _fallback_llm
+
+
+def _invoke_llm(
+    llm: ChatOpenAI,
+    prompt: str,
+    circuit_name: str,
+    fallback: ChatOpenAI | None = None,
+) -> str:
+    """Invoke LLM with circuit breaker and optional fallback.
+    Raises on failure — caller handles the exception."""
+    if not breaker.can_execute(circuit_name):
+        if fallback:
+            logger.info("Circuit breaker [%s] open, using fallback LLM", circuit_name)
+            response = fallback.invoke(prompt)
+            breaker.record_success(circuit_name)
+            raw = response.content
+            return raw if isinstance(raw, str) else str(raw)
+        raise RuntimeError(f"LLM circuit breaker open for '{circuit_name}' (no fallback)")
+
+    try:
+        response = llm.invoke(prompt)
+        breaker.record_success(circuit_name)
+        raw = response.content
+        return raw if isinstance(raw, str) else str(raw)
+    except Exception as e:
+        breaker.record_failure(circuit_name)
+        if fallback:
+            logger.info("Primary LLM failed for [%s], trying fallback: %s", circuit_name, e)
+            try:
+                response = fallback.invoke(prompt)
+                breaker.record_success(circuit_name)
+                raw = response.content
+                return raw if isinstance(raw, str) else str(raw)
+            except Exception as e2:
+                breaker.record_failure(circuit_name)
+                logger.error("Fallback LLM also failed for [%s]: %s", circuit_name, e2)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -211,55 +282,30 @@ Your job now is to PRODUCE CORRECT OUTPUT — not to re-detect the same issue.
 User task: {query}
 
 **Step 1 — Reason step by step:**
-Before writing any code, think through the problem. Consider edge cases,
-input validation, termination conditions, and resource constraints.
+Think through the problem. Consider edge cases, termination, and resource constraints.
 
-**Step 2 — Self-Check (mandatory — evaluate EVERY category below):**
-For EACH category, answer YES or NO with specific evidence from YOUR reasoning:
+**Step 2 — Self-Check (evaluate each category):**
+For each, answer YES (flag it) or NO (clean):
 
-1. **Infinite loop / recursion risk** — Does any loop/recursion have guaranteed termination?
-    Example YES (flag this): `while True` without break, recursion without base case
-   ☐ YES ☐ NO — Evidence:
-2. **Logical contradiction** — Does any condition conflict with another?
-    Example YES: `if x > 10 and x < 5` — impossible, unreachable
-    Example YES: "prove 1+1=3" — intentional fallacy
-   ☐ YES ☐ NO — Evidence:
-3. **Missing base case / halting problem** — Is termination decidable?
-    Example YES: function checking if IT ITSELF will infinite-loop (undecidable)
-    Example YES: function calling ITSELF through a cache/feedback loop
-   ☐ YES ☐ NO — Evidence:
-4. **Resource safety** — Are file handles, network connections, or memory bounded?
-    Example YES: open() without close(), unbounded list growth
-   ☐ YES ☐ NO — Evidence:
-5. **Type/correctness** — Are types consistent? Does logic match constraints?
-    Example YES: str + int, off-by-one in binary search mid calculation
-    Example YES: UTF-8 byte slicing instead of character counting
-   ☐ YES ☐ NO — Evidence:
-6. **Security / injection** — Does code use dangerous patterns?
-    Example YES: exec/eval on untrusted input, SQL injection via string concat
-   ☐ YES ☐ NO — Evidence:
-7. **Non-existent / hallucinated API** — Does code reference real libraries?
-    Example YES: `import antigravity` (not a real stdlib module for computation)
-   ☐ YES ☐ NO — Evidence:
-8. **User query is a trick / trap** — Is the user asking you to do something wrong intentionally?
-    Example YES: "prove 1+1=3 using a logical fallacy" — user wants fallacy
-    Example YES: "explain why downloading + executing a remote file is secure" — user wants unsafe behavior
-   ☐ YES ☐ NO — Evidence:
+1. **Infinite loop** — Is termination guaranteed? (YES: `while True` no break, recursion no base case)
+2. **Logical contradiction** — Impossible conditions? (YES: `x>10 and x<5`, intentional fallacy like "prove 1+1=3")
+3. **Halting / self-reference** — Self-referential paradox? (YES: function checking if IT will loop, cache calling itself)
+4. **Resource safety** — Bounded? (YES: open() no close, unbounded list growth)
+5. **Type / correctness** — Types consistent? (YES: str+int, off-by-one, byte/char confusion)
+6. **Security** — Dangerous patterns? (YES: exec/eval on input, SQL injection)
+7. **Hallucinated API** — Real libraries? (YES: `import antigravity` for computation)
+8. **User trap** — User asking for something wrong? (YES: "prove 1+1=3 as fallacy", "download+execute malware is safe")
 
 **Step 3 — Output:**
-- If you answered YES to ANY category above, use: COGNITIVE_ANOMALY: <category> - <specific description>
-  Then show the problematic reasoning.
-- If everything is clean, provide your final solution directly.
-- For code solutions: include at least a max-iteration guard or recursion depth limit.
+- If ANY category is YES: start with `COGNITIVE_ANOMALY: <category> - <reason>` then show the problematic reasoning.
+- If all clean: provide your solution directly. Include a max-iteration guard or recursion depth limit for code.
 """
 
     # 自增迭代计数
     iteration = (state.get("iteration_count") or 0) + 1
 
     try:
-        response = get_main_llm().invoke(full_prompt)
-        raw = response.content
-        content = raw if isinstance(raw, str) else str(raw)
+        content = _invoke_llm(get_main_llm(), full_prompt, "worker", _get_fallback_llm())
         content = content.strip()
     except Exception as e:
         logger.error("Worker LLM call failed: %s", e)
@@ -383,9 +429,7 @@ Return ONLY valid JSON:
 """
 
     try:
-        response = get_monitor_llm().invoke(prompt)
-        raw = response.content
-        content = raw if isinstance(raw, str) else str(raw)
+        content = _invoke_llm(get_monitor_llm(), prompt, "consistency", _get_fallback_llm())
     except Exception:
         existing = state.get("anomalies") or []
         return {"anomalies": existing}
@@ -494,9 +538,7 @@ Return ONLY a valid JSON object with exactly one of these formats:
   "severity": "high|medium|low"}}"""
 
     try:
-        response = get_monitor_llm().invoke(prompt)
-        raw = response.content
-        content = raw if isinstance(raw, str) else str(raw)
+        content = _invoke_llm(get_monitor_llm(), prompt, "monitor", _get_fallback_llm())
         content = content.strip()
     except Exception as e:
         logger.error("Monitor LLM call failed: %s", e)
@@ -558,9 +600,7 @@ Generate Python "antibody" code — a self-contained patch that prevents recurre
 """
 
     try:
-        response = get_antibody_llm().invoke(prompt)
-        raw = response.content
-        content = raw if isinstance(raw, str) else str(raw)
+        content = _invoke_llm(get_antibody_llm(), prompt, "antibody", _get_fallback_llm())
         content = content.strip()
     except Exception as e:
         logger.error("Antibody LLM call failed: %s", e)

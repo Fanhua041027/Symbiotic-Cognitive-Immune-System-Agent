@@ -21,6 +21,7 @@ def immune_state() -> dict[str, Any]:
         "validation_status": None,
         "iteration_count": 0,
         "escalation_report": None,
+        "request_id": None,
         "workflow_trace": [],
     }
 

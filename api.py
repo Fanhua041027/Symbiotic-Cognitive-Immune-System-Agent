@@ -29,6 +29,7 @@ logger = setup_logger("api")
 
 try:
     from fastapi import FastAPI, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel, Field
 except ImportError:
     print("fastapi/uvicorn not installed. Run: pip install fastapi uvicorn")
@@ -51,6 +52,17 @@ app = FastAPI(
     version="1.1.0",
     description="REST API for the bio-inspired multi-agent immune system framework",
 )
+
+# CORS: allow Streamlit (localhost:8501) and any origin in production
+try:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+except Exception:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -129,9 +141,11 @@ async def query(request: QueryRequest) -> QueryResponse:
 @app.get("/stats", tags=["System"])
 async def stats():
     """Return system metrics and statistics."""
+    from core.circuit_breaker import breaker
     return {
         "metrics": metrics.get_summary(),
         "immune_memory": _memory_stats(),
+        "circuit_breaker": breaker.all_status(),
     }
 
 
@@ -196,6 +210,53 @@ async def clear_memory():
 
 
 # ---------------------------------------------------------------------------
+# Session endpoints
+# ---------------------------------------------------------------------------
+@app.get("/sessions", tags=["Session"])
+async def list_sessions():
+    """List all saved sessions with basic metadata."""
+    from core.agent_session import AgentSession
+    try:
+        sessions = AgentSession.list_sessions()
+        return {"sessions": sessions, "count": len(sessions)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sessions/{session_id}", tags=["Session"])
+async def get_session(session_id: str):
+    """Get full details of a specific session."""
+    from core.agent_session import AgentSession
+    try:
+        session = AgentSession.load(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        return {
+            "session_id": session.session_id,
+            "summary": session.summary(),
+            "recent_turns": session.recent_turns(20),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sessions/reset", tags=["Session"])
+async def reset_session():
+    """Reset the current active session and start fresh."""
+    from core.agent_session import reset_session as _reset
+    try:
+        new_session = _reset()
+        return {
+            "status": "reset",
+            "new_session_id": new_session.session_id,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
 # Demo queries (shared with adversarial test suite)
 # ---------------------------------------------------------------------------
 try:
@@ -217,8 +278,8 @@ async def list_demo():
     return {"demos": list(_demo_queries.keys()), "count": len(_demo_queries)}
 
 
-@app.post("/demo/{name}", tags=["Agent"])
-async def run_demo(name: str):
+@app.post("/demo/{name}", tags=["Agent"], response_model=QueryResponse)
+async def run_demo(name: str) -> QueryResponse:
     """Run a specific demo query."""
     if name not in _demo_queries:
         demos = list(_demo_queries.keys())[:5]

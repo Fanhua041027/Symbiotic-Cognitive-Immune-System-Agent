@@ -45,8 +45,10 @@ def _with_trace(node_name: str, func):
     def wrapped(state: ImmunologyState) -> dict:
         trace = list(state.get("workflow_trace") or [])
         trace.append(f"enter:{node_name}")
+        req_id = state.get("request_id") or "-"
         logger.debug(
-            "Trace: entering %s (iter=%d)", label, state.get("iteration_count", 0)
+            "Trace [%s]: entering %s (iter=%d)",
+            req_id, label, state.get("iteration_count", 0),
         )
 
         result = func(state)

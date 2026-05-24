@@ -4,6 +4,8 @@ Tracks query success/failure rates, anomaly patterns, latency statistics,
 and immune response effectiveness.
 """
 
+import atexit
+import glob
 import json
 import os
 import threading
@@ -31,19 +33,25 @@ class QueryRecord:
     immune_activated: bool
     validation_status: str | None
     escalation: bool
+    request_id: str
     success: bool  # whether final_output was produced
 
 
 class MetricsTracker:
     """Thread-safe metrics tracking for the immune system."""
 
-    def __init__(self, window_size: int = 1000):
+    def __init__(self, window_size: int = 1000, auto_save_every: int = 10):
         self._lock = threading.Lock()
         self._window_size = window_size
         self._records: deque[QueryRecord] = deque(maxlen=window_size)
         self._anomaly_counter: Counter[str] = Counter()
         self._session_start = time.time()
         self._total_duration = 0.0
+        self._auto_save_every = auto_save_every
+        self._auto_save_counter = 0
+        self._last_report_path: str | None = None
+        os.makedirs(METRICS_DIR, exist_ok=True)
+        atexit.register(self._auto_save_on_exit)
 
     def record_query(self, result: dict) -> QueryRecord:
         """Record the result of a single query execution."""
@@ -62,6 +70,7 @@ class MetricsTracker:
             immune_activated=result.get("is_immune_active", False),
             validation_status=result.get("validation_status"),
             escalation=result.get("escalation_report") is not None,
+            request_id=result.get("request_id", "") or "",
             success=result.get("final_output") is not None,
         )
 
@@ -73,6 +82,13 @@ class MetricsTracker:
 
         logger.debug("Metrics recorded: anomaly=%s, immune=%s, antibodies=%d",
                       has_anomaly, record.immune_activated, record.antibody_count)
+
+        # Auto-save every N records
+        self._auto_save_counter += 1
+        if self._auto_save_counter >= self._auto_save_every:
+            self._auto_save()
+            self._auto_save_counter = 0
+
         return record
 
     def get_summary(self) -> dict[str, Any]:
@@ -125,7 +141,57 @@ class MetricsTracker:
                 "total_llm_time_seconds": round(self._total_duration, 1),
             }
 
-    def save_report(self, filename: str | None = None) -> str:
+    def _auto_save(self) -> None:
+        """Internal: save report with a rotating filename pattern."""
+        try:
+            self._last_report_path = self.save_report("_auto_recent.json")
+        except Exception as e:
+            logger.debug("Auto-save metrics failed: %s", e)
+
+    def _auto_save_on_exit(self) -> None:
+        """atexit hook: save final metrics report."""
+        if not self._records:
+            return
+        try:
+            self.save_report(
+                f"metrics_final_{time.strftime('%Y%m%d_%H%M%S')}.json",
+                quiet=True,
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def cleanup_old_reports(max_age_days: int = 7) -> int:
+        """Remove metrics report files older than max_age_days. Returns count removed."""
+        cutoff = time.time() - max_age_days * 86400
+        pattern = os.path.join(METRICS_DIR, "*.json")
+        removed = 0
+        for fpath in glob.glob(pattern):
+            try:
+                if os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+                    removed += 1
+            except OSError:
+                pass
+        if removed:
+            logger.info("Cleaned up %d old metrics reports", removed)
+        return removed
+
+    @classmethod
+    def load_latest_report(cls) -> dict[str, Any] | None:
+        """Load the most recent auto-saved metrics report from disk."""
+        pattern = os.path.join(METRICS_DIR, "*.json")
+        files = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
+        if not files:
+            return None
+        try:
+            with open(files[0], "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.debug("Failed to load metrics report %s: %s", files[0], e)
+            return None
+
+    def save_report(self, filename: str | None = None, quiet: bool = False) -> str:
         """Save a metrics report to disk as JSON."""
         os.makedirs(METRICS_DIR, exist_ok=True)
         if filename is None:
@@ -150,9 +216,12 @@ class MetricsTracker:
 
         with open(path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
-        logger.info("Metrics report saved: %s", path)
+        if not quiet:
+            logger.info("Metrics report saved: %s", path)
         return path
 
 
 # Global singleton
 metrics = MetricsTracker()
+# Clean up stale report artifacts from previous sessions
+MetricsTracker.cleanup_old_reports(max_age_days=7)

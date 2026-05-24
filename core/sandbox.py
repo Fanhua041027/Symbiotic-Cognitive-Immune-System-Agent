@@ -11,7 +11,6 @@ import ast
 import os
 import subprocess
 import tempfile
-from typing import Optional
 
 from core.config import get as cfg
 from core.logger import setup_logger
@@ -89,15 +88,6 @@ class ASTValidator:
 
         return True, ""
 
-    @staticmethod
-    def _get_func_name(node: ast.AST) -> Optional[str]:
-        if isinstance(node, ast.Name):
-            return node.id
-        if isinstance(node, ast.Attribute):
-            return node.attr
-        return None
-
-
 # ---------------------------------------------------------------------------
 # Level 3: Docker sandbox (real execution in isolated container)
 # ---------------------------------------------------------------------------
@@ -107,6 +97,7 @@ def validate_docker(code: str) -> tuple[bool, str]:
         logger.warning("Docker not available, falling back to AST validation")
         return validate_ast(code)
 
+    host_path = ""
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".py", delete=False, encoding="utf-8"
     ) as f:
@@ -136,10 +127,11 @@ def validate_docker(code: str) -> tuple[bool, str]:
         logger.error("Docker validation error: %s", e)
         return validate_ast(code)
     finally:
-        try:
-            os.unlink(host_path)
-        except OSError:
-            pass
+        if host_path:
+            try:
+                os.unlink(host_path)
+            except OSError:
+                pass
 
 
 def _docker_available() -> bool:

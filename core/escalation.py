@@ -4,10 +4,11 @@ Tracks consecutive immune system failures and generates escalation
 reports when the system cannot autonomously resolve anomalies.
 """
 
+import glob
 import json
 import os
+import time
 from datetime import datetime, timezone
-from typing import Optional
 
 from core.config import get as cfg
 from core.logger import setup_logger
@@ -31,7 +32,7 @@ class EscalationTracker:
         query: str,
         anomaly_reason: str,
         antibodies_generated: int,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Record an immune response failure.
         Returns escalation report path if threshold exceeded.
@@ -109,6 +110,25 @@ class EscalationTracker:
     def consecutive_failures(self) -> int:
         return self._consecutive_failures
 
+    @staticmethod
+    def cleanup_old_reports(max_age_days: int = 30) -> int:
+        """Remove escalation reports older than max_age_days. Returns count."""
+        cutoff = time.time() - max_age_days * 86400
+        pattern = os.path.join(ESCALATION_DIR, "*.json")
+        removed = 0
+        for fpath in glob.glob(pattern):
+            try:
+                if os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+                    removed += 1
+            except OSError:
+                pass
+        if removed:
+            logger.info("Cleaned up %d old escalation reports", removed)
+        return removed
+
 
 # Global singleton
 escalation = EscalationTracker()
+# Clean up stale escalation reports from previous sessions
+EscalationTracker.cleanup_old_reports(max_age_days=30)

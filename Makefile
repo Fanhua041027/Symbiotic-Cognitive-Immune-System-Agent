@@ -57,7 +57,7 @@ api:
 # Clean caches and logs
 clean:
 	rm -rf __pycache__ core/__pycache__ tests/__pycache__
-	rm -rf logs/ .immune_db/ escalations/ benchmarks/
+	rm -rf logs/ .immune_db/ escalations/ benchmarks/ sessions/
 	rm -f *.pyc core/*.pyc tests/*.pyc
 
 # Docker

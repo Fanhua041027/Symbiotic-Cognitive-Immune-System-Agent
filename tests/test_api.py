@@ -78,6 +78,11 @@ class TestHealth:
         data = resp.json()
         assert "status" in data
 
+    def test_cors_headers_present(self, client):
+        """CORS middleware adds Access-Control-Allow-Origin header."""
+        resp = client.get("/health", headers={"Origin": "http://localhost:8501"})
+        assert resp.headers.get("access-control-allow-origin") == "*"
+
 
 # ---------------------------------------------------------------------------
 # Query endpoint
@@ -140,6 +145,13 @@ class TestStats:
         assert "metrics" in data
         assert data["metrics"]["records"] == 5
         assert "immune_memory" in data
+        assert "circuit_breaker" in data
+
+    def test_stats_contains_circuit_breaker_status(self, client):
+        resp = client.get("/stats")
+        data = resp.json()
+        cb = data["circuit_breaker"]
+        assert isinstance(cb, dict)
 
 
 # ---------------------------------------------------------------------------
@@ -230,3 +242,54 @@ class TestDemo:
     def test_run_demo_not_found(self, client):
         resp = client.post("/demo/nonexistent_demo")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Session endpoints
+# ---------------------------------------------------------------------------
+class TestSessions:
+    def test_list_sessions(self, client):
+        """GET /sessions returns session list."""
+        resp = client.get("/sessions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "sessions" in data
+        assert "count" in data
+
+    def test_get_session_not_found(self, client):
+        """GET /sessions/{id} returns 404 for unknown session."""
+        resp = client.get("/sessions/nonexistent")
+        assert resp.status_code == 404
+
+    def test_get_session_found(self, client):
+        """GET /sessions/{id} returns session details."""
+        from unittest.mock import patch
+
+        from core.agent_session import AgentSession
+        fake_session = AgentSession(session_id="test-001")
+        fake_session.record_turn({
+            "final_output": "ok", "user_query": "hello", "anomalies": [],
+            "antibodies": [], "is_immune_active": False,
+            "validation_status": None, "escalation_report": None,
+            "duration": 0.5, "error": None,
+        })
+        with patch("core.agent_session.AgentSession.load", return_value=fake_session):
+            resp = client.get("/sessions/test-001")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session_id"] == "test-001"
+        assert "summary" in data
+        assert "recent_turns" in data
+
+    def test_reset_session(self, client):
+        """POST /sessions/reset creates a new session."""
+        from unittest.mock import patch
+
+        from core.agent_session import AgentSession
+        new_sess = AgentSession(session_id="new-sess")
+        with patch("core.agent_session.reset_session", return_value=new_sess):
+            resp = client.post("/sessions/reset")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "reset"
+        assert data["new_session_id"] == "new-sess"

@@ -13,6 +13,10 @@ WORKDIR /app
 
 # Copy pre-installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+
+# Install API and Web UI dependencies
+RUN pip install --no-cache-dir fastapi uvicorn streamlit
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 

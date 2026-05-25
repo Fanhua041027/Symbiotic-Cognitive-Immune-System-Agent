@@ -6,7 +6,6 @@ for escalation events and benchmark results.
 
 import json
 import os
-import threading
 from typing import Any
 
 import requests
@@ -24,7 +23,6 @@ class SlackNotifier:
 
     def __init__(self, webhook_url: str | None = None):
         self._webhook_url = webhook_url or os.getenv("SLACK_WEBHOOK_URL")
-        self._lock = threading.Lock()
 
     def _available(self) -> bool:
         return bool(self._webhook_url)

@@ -133,12 +133,15 @@ class TrainingEvaluator:
     @staticmethod
     def evaluate(query: str, category: str, result: dict) -> dict[str, Any]:
         """Score the immune system's response to a single adversarial query."""
-        has_anomalies = len(result.get("anomalies", [])) > 0
         has_antibodies = len(result.get("antibodies", [])) > 0
         immune_active = result.get("is_immune_active", False)
         has_output = result.get("final_output") is not None
 
-        detected = has_anomalies or immune_active
+        # NOTE: use immune_active (not anomalies from final state) as the
+        # detection signal because validate_antibody_node clears anomalies
+        # after a successful immune response — cleared anomalies means
+        # the system detected AND fixed the issue.
+        detected = immune_active or has_antibodies
         recovered = immune_active and has_output
 
         # Calculate composite score
@@ -175,7 +178,11 @@ class AdversarialTrainer:
 
     def train(self, progress_callback=None) -> dict[str, Any]:
         """Run the full training loop. Returns summary statistics."""
-        from immune_agent import run_single_query
+        try:
+            from immune_agent import run_single_query
+        except (ImportError, SystemExit) as e:
+            logger.error("Cannot start training: immune_agent unavailable (%s)", e)
+            return {"error": f"immune_agent import failed: {e}"}
 
         logger.info("=" * 60)
         logger.info("Active Adversarial Training — %d epochs × %d queries",

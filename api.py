@@ -12,6 +12,9 @@ Usage:
 
 import os
 import sys
+import threading
+import time
+import uuid
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -361,16 +364,52 @@ async def run_demo(name: str) -> QueryResponse:
 # ---------------------------------------------------------------------------
 # v1.2.0: Training and export endpoints
 # ---------------------------------------------------------------------------
-@app.post("/train", tags=["Training"])
-async def start_training(epochs: int = 3, queries_per_epoch: int = 5):
-    """Run active adversarial training. Returns summary statistics (v1.2.0)."""
+
+# Background task registry for long-running training jobs
+_tasks: dict = {}
+_tasks_lock = threading.Lock()
+
+
+def _run_training_task(task_id: str, epochs: int, queries_per_epoch: int) -> None:
+    """Run training in a background thread and store the result."""
     from core.adversarial_trainer import AdversarialTrainer
     try:
         trainer = AdversarialTrainer(epochs=epochs, queries_per_epoch=queries_per_epoch)
         stats = trainer.train()
-        return {"status": "ok", "stats": stats}
+        with _tasks_lock:
+            _tasks[task_id] = {"status": "completed", "stats": stats}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        with _tasks_lock:
+            _tasks[task_id] = {"status": "failed", "error": str(e)}
+
+
+@app.post("/train", tags=["Training"])
+async def start_training(epochs: int = 3, queries_per_epoch: int = 5):
+    """Start adversarial training in background. Returns a task ID (v1.2.0)."""
+    task_id = uuid.uuid4().hex[:12]
+    with _tasks_lock:
+        _tasks[task_id] = {"status": "running"}
+    thread = threading.Thread(
+        target=_run_training_task,
+        args=(task_id, epochs, queries_per_epoch),
+        daemon=True,
+    )
+    thread.start()
+    return {
+        "status": "started",
+        "task_id": task_id,
+        "message": f"Training task {task_id} started (epochs={epochs}, queries/epoch={queries_per_epoch})",
+    }
+
+
+@app.get("/train/{task_id}", tags=["Training"])
+async def get_training_status(task_id: str):
+    """Check the status of a background training task (v1.2.0)."""
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return {"task_id": task_id, **task}
 
 
 @app.get("/training/reports", tags=["Training"])
@@ -398,9 +437,24 @@ async def export_memory():
 @app.post("/memory/import", tags=["Memory"])
 async def import_memory(path: str):
     """Import antibodies from a JSON file (v1.2.0)."""
+    # Path traversal protection: only allow paths within project dir
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    allowed_dirs = [
+        os.path.join(project_root, d)
+        for d in ("exports", "benchmarks", "trainer")
+    ]
+    resolved = os.path.abspath(os.path.join(project_root, path))
+    if not any(resolved.startswith(d) for d in allowed_dirs):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path not allowed. Must be within: exports/, benchmarks/, trainer/",
+        )
+    if not os.path.exists(resolved):
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
     from core.memory import memory_db
     try:
-        count = memory_db.import_antibodies(path)
+        count = memory_db.import_antibodies(resolved)
         return {"status": "ok", "imported": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

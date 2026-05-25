@@ -79,24 +79,23 @@ def generate_benchmark_report(stats: dict, cases: list[dict] | None = None) -> s
     """Generate a self-contained HTML report for benchmark results."""
     s = stats.get("stats", stats)
     total = s.get("total", 0)
-    detected = s.get("anomalies_detected", 0)
-    recovered = s.get("immune_activated", 0)
+    immune = s.get("immune_activated", 0)
     antibodies = s.get("antibodies_generated", 0)
-    escalations = s.get("escalations", 0)
+    anomalies_final = s.get("anomalies_final_state", 0)
     duration = s.get("total_duration", 0)
     detection_rate = stats.get("detection_rate_pct", 0)
-    recovery_rate = stats.get("recovery_rate_pct", 0)
+    antibody_rate = stats.get("antibody_rate_pct", 0)
 
     stat_row = _stat_box("Total Tests", str(total))
-    stat_row += _stat_box("Detected", f'{detected} ({detection_rate}%)')
-    stat_row += _stat_box("Recovered", f'{recovered} ({recovery_rate}%)')
-    stat_row += _stat_box("Antibodies", str(antibodies))
-    stat_row += _stat_box("Escalations", str(escalations))
+    stat_row += _stat_box("Detection Rate", f"{detection_rate}%")
+    stat_row += _stat_box("Immune Activated", str(immune))
+    stat_row += _stat_box("Antibody Rate", f"{antibody_rate}%")
+    stat_row += _stat_box("Anomalies (final)", str(anomalies_final))
     stat_row += _stat_box("Duration", f"{duration:.1f}s")
 
     content = f'<div class="stat-row">{stat_row}</div>'
     content += _bar_html("Detection Rate", detection_rate, color="#1a73e8")
-    content += _bar_html("Recovery Rate", recovery_rate, color="#0d9488")
+    content += _bar_html("Antibody Rate", antibody_rate, color="#0d9488")
     content += _bar_html("Escalation Rate",
                          escalations / total * 100 if total > 0 else 0,
                          color="#ef4444")

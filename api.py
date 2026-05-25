@@ -66,6 +66,33 @@ try:
 except Exception as e:
     logger.warning("CORS middleware setup failed: %s", e)
 
+# Rate limiting middleware (configurable via RATE_LIMIT_REQUESTS env var)
+try:
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+
+    from core.ratelimit import RateLimitExceeded, get_limiter
+
+    _rate_limiter = get_limiter()
+
+    if _rate_limiter is not None:
+        @app.middleware("http")
+        async def rate_limit_middleware(request: Request, call_next):
+            # Only rate-limit query and demo endpoints (the expensive ones)
+            if request.url.path in ("/query",) or request.url.path.startswith("/demo"):
+                client_ip = request.client.host if request.client else "unknown"
+                try:
+                    _rate_limiter.check(client_ip)
+                except RateLimitExceeded as e:
+                    return JSONResponse(
+                        status_code=429,
+                        content={"error": str(e)},
+                    )
+            return await call_next(request)
+        logger.info("Rate limiting enabled")
+except Exception as e:
+    logger.warning("Rate limiter setup failed: %s", e)
+
 
 # ---------------------------------------------------------------------------
 # Request / Response models

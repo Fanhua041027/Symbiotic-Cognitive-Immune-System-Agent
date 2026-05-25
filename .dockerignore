@@ -2,28 +2,47 @@
 .git
 .gitignore
 .gitattributes
+.gitmodules
 
 # Environment
 .env
 .envrc
+.env.local
+.env.example
+.env.production
+*.env
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
-.venv
+.venv/
 venv/
 env/
+.venv
+venv
+dist/
+build/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
 # IDE
 .idea/
 .vscode/
 *.swp
+*.swo
+*~
+.vs/
 
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
 
 # Project data (generated at runtime)
 .immune_db/
@@ -36,14 +55,9 @@ sessions/
 # CI / quality
 .github/
 .pre-commit-config.yaml
-.pytest_cache/
-.ruff_cache/
 
 # Docs and dev
-README.md
-CONTRIBUTING.md
-CHANGELOG.md
-SECURITY.md
+*.md
 Makefile
 pyproject.toml
 

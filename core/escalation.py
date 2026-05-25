@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from core.config import get as cfg
 from core.logger import setup_logger
+from core.notifications import notifier
 
 logger = setup_logger("escalation")
 
@@ -93,6 +94,9 @@ class EscalationTracker:
 
         with open(path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
+
+        # Send notifications for escalation
+        notifier.notify_escalation(report)
 
         logger.error(
             "ESCALATION: %d consecutive failures. Report saved to %s",

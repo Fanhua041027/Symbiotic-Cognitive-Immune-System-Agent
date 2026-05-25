@@ -1,16 +1,48 @@
 # Changelog
 
-## 1.2.0
+## 1.2.0 (2026-05-25)
 
-- Session management system (`core/agent_session.py`) with health scoring, anomaly tracking, and recovery events
-- 34 new unit tests for session manager (182 total, up from 148)
-- Daemon / heartbeat mode (`immune_agent.py -d --heartbeat 10`)
-- Streamlit UI: sidebar health dashboard with auto-refresh toggle
-- Fixed thread deadlock in session summary (RLock for reentrant lock acquisition)
-- Ruff v0.15.14, mypy v2.1.0, pre-commit-hooks v6.0.0
-- Session max turns configurable via `SESSION_MAX_TURNS` env var
-- Per-file ruff ignore rules for api.py, app.py, core/workflow.py
-- Zero ruff lint errors, zero mypy type errors
+- **Active adversarial training** (`core/adversarial_trainer.py`):
+  - Attacker Agent generates adversarial queries via LLM (10 anomaly categories)
+  - Automated training loop with epochs, scoring, and progress tracking
+  - Training reports saved to `trainer/` directory
+  - CLI: `python immune_agent.py --train --epochs 3 --queries-per-epoch 5`
+  - Web UI: Training tab with progress bar and report browser
+  - REST API: `POST /train`, `GET /training/reports`
+
+- **Notification system** (`core/notifications.py`):
+  - Slack webhook integration for escalation alerts and benchmark reports
+  - Generic webhook support for JSON payloads
+  - Auto-notify on escalation events (integrated with `core/escalation.py`)
+  - Config: `SLACK_WEBHOOK_URL`, `NOTIFICATION_WEBHOOK_URL`
+
+- **Antibody export/import** (`core/memory.py`):
+  - Export all antibodies to JSON: `python immune_agent.py --export-antibodies`
+  - Import antibodies from JSON: `python immune_agent.py --import-antibodies path/to/export.json`
+  - Cross-instance immune memory sharing
+  - REST API: `POST /memory/export`, `POST /memory/import`
+
+- **HTML report generator** (`core/reports.py`):
+  - Self-contained HTML reports with CSS styling and bar charts
+  - Benchmark, training, and metrics report templates
+  - CLI: `python immune_agent.py --report`
+  - REST API: `POST /reports/generate`
+
+- **API rate limiting enhancement** (`core/ratelimit.py`):
+  - Token bucket with remaining() and reset() methods
+  - FastAPI middleware integration with 429 responses
+  - Config: `RATE_LIMIT_REQUESTS=30`, `RATE_LIMIT_WINDOW=60`
+
+- **Production Docker Compose**:
+  - Multi-stage Dockerfile with non-root user and security hardening
+  - Named volumes for all data directories
+  - 5 service profiles: core, interactive, api, web, daemon
+  - Healthchecks on API and Web services
+  - Isolated bridge network
+  - Profiles for selective service startup
+
+- 283 unit tests passing (100%), 0 warnings
+- 22 adversarial test cases across 10 anomaly categories
 
 ## 1.1.0
 

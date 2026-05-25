@@ -188,6 +188,7 @@ async def stats():
         "metrics": metrics_summary,
         "immune_memory": _memory_stats(),
         "circuit_breaker": breaker.all_status(),
+        "version": VERSION,
     }
 
 
@@ -352,6 +353,71 @@ async def run_demo(name: str) -> QueryResponse:
         escalation_report=result.get("escalation_report"),
         duration=result.get("duration", 0.0),
     )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# v1.2.0: Training and export endpoints
+# ---------------------------------------------------------------------------
+@app.post("/train", tags=["Training"])
+async def start_training(epochs: int = 3, queries_per_epoch: int = 5):
+    """Run active adversarial training. Returns summary statistics (v1.2.0)."""
+    from core.adversarial_trainer import AdversarialTrainer
+    try:
+        trainer = AdversarialTrainer(epochs=epochs, queries_per_epoch=queries_per_epoch)
+        stats = trainer.train()
+        return {"status": "ok", "stats": stats}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/training/reports", tags=["Training"])
+async def list_training_reports():
+    """List previous training reports (v1.2.0)."""
+    from core.adversarial_trainer import AdversarialTrainer
+    try:
+        reports = AdversarialTrainer.list_reports()
+        return {"reports": reports, "count": len(reports)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/memory/export", tags=["Memory"])
+async def export_memory():
+    """Export all antibodies to a JSON file (v1.2.0)."""
+    from core.memory import memory_db
+    try:
+        path = memory_db.export_antibodies()
+        return {"status": "ok", "path": path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/memory/import", tags=["Memory"])
+async def import_memory(path: str):
+    """Import antibodies from a JSON file (v1.2.0)."""
+    from core.memory import memory_db
+    try:
+        count = memory_db.import_antibodies(path)
+        return {"status": "ok", "imported": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/reports/generate", tags=["System"])
+async def generate_report():
+    """Generate an HTML metrics report (v1.2.0)."""
+    from core.metrics import metrics
+    from core.reports import generate_metrics_report, save_report
+    try:
+        summary = metrics.get_summary()
+        html = generate_metrics_report(summary)
+        path = save_report(html)
+        return {"status": "ok", "path": path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------------------------------------------------------------------------

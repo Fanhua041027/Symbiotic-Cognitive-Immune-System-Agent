@@ -34,29 +34,19 @@ logger = setup_logger("cli")
 config_warnings = validate_all()
 show_summary()
 
-if config_warnings:
-    provider = os.getenv("LLM_PROVIDER", "openai")
-    if provider == "deepseek":
-        has_critical = any(
-            w.startswith("MISSING: DEEPSEEK_API_KEY") for w in config_warnings)
-    elif provider == "custom":
-        has_critical = any(
-            w.startswith("MISSING: CUSTOM_API_KEY") for w in config_warnings)
+if config_warnings and __name__ == "__main__":
+    # Only bail for commands that need the API key
+    if len(sys.argv) > 1 and sys.argv[1] in ("-s", "--stats", "-g", "--graph"):
+        pass  # stats/graph don't need API key
     else:
-        has_critical = any(
-            w.startswith("MISSING: OPENAI_API_KEY") for w in config_warnings)
-    if has_critical and __name__ == "__main__":
-        # Only bail for commands that need the API key
-        if len(sys.argv) > 1 and sys.argv[1] in ("-s", "--stats", "-g", "--graph"):
-            pass  # stats/graph don't need API key
-        else:
-            key_name = (
-                "DEEPSEEK_API_KEY" if provider == "deepseek"
-                else "CUSTOM_API_KEY" if provider == "custom"
-                else "OPENAI_API_KEY"
-            )
+        api_key_warnings = [
+            w for w in config_warnings
+            if w.startswith("MISSING: ") and "_API_KEY" in w
+        ]
+        if api_key_warnings:
+            key_msg = api_key_warnings[0].replace("MISSING: ", "").split(" -")[0]
             logger.error(
-                f"{key_name} is not set. "
+                f"{key_msg} is not set. "
                 "Copy .env.example to .env and fill in your API key.",
             )
             sys.exit(1)
@@ -434,6 +424,42 @@ def main() -> None:
         default=30.0,
         help="Heartbeat interval in seconds for daemon mode (default: 30)",
     )
+    parser.add_argument(
+        "--train",
+        action="store_true",
+        help="Run active adversarial training (v1.2.0)",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=3,
+        help="Number of training epochs (default: 3, used with --train)",
+    )
+    parser.add_argument(
+        "--queries-per-epoch",
+        type=int,
+        default=5,
+        help="Queries per epoch (default: 5, used with --train)",
+    )
+    parser.add_argument(
+        "--export-antibodies",
+        type=str,
+        nargs="?",
+        const="auto",
+        help="Export antibodies to JSON file (v1.2.0)",
+    )
+    parser.add_argument(
+        "--import-antibodies",
+        type=str,
+        help="Import antibodies from JSON file (v1.2.0)",
+    )
+    parser.add_argument(
+        "--report",
+        type=str,
+        nargs="?",
+        const="auto",
+        help="Generate HTML report from metrics (v1.2.0)",
+    )
 
     args = parser.parse_args()
 
@@ -443,6 +469,49 @@ def main() -> None:
 
     if args.daemon:
         run_daemon(interval=args.heartbeat)
+        return
+
+    if args.train:
+        logger.info("Starting active adversarial training (v1.2.0)...")
+        logger.info("Epochs: %d, Queries per epoch: %d",
+                     args.epochs, args.queries_per_epoch)
+        from core.adversarial_trainer import AdversarialTrainer
+        trainer = AdversarialTrainer(
+            epochs=args.epochs, queries_per_epoch=args.queries_per_epoch)
+        stats = trainer.train()
+        # Generate and save HTML report
+        from core.reports import generate_training_report, save_report
+        html = generate_training_report(stats, trainer._results)
+        path = save_report(html)
+        logger.info("Training report saved: %s", path)
+        return
+
+    if args.export_antibodies:
+        from core.memory import memory_db
+        path = args.export_antibodies if args.export_antibodies != "auto" else None
+        result_path = memory_db.export_antibodies(path)
+        logger.info("Exported antibodies to: %s", result_path)
+        print(f"Exported to: {result_path}")
+        return
+
+    if args.import_antibodies:
+        from core.memory import memory_db
+        count = memory_db.import_antibodies(args.import_antibodies)
+        logger.info("Imported %d antibodies", count)
+        print(f"Imported {count} antibodies")
+        return
+
+    if args.report:
+        from core.metrics import metrics
+        from core.reports import generate_metrics_report, save_report
+        summary = metrics.get_summary()
+        html = generate_metrics_report(summary)
+        path = args.report if args.report != "auto" else None
+        if path and not path.endswith(".html"):
+            path = None
+        result_path = save_report(html, path)
+        logger.info("Metrics report saved: %s", result_path)
+        print(f"Report saved to: {result_path}")
         return
 
     if args.graph:

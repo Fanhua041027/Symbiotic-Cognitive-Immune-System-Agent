@@ -2246,7 +2246,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         services = cfg.get("services", {})
         assert "immune-agent-api" in services
@@ -2259,7 +2259,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         services = cfg.get("services", {})
         assert "immune-agent-web" in services
@@ -2272,7 +2272,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         services = cfg.get("services", {})
         for name in ["immune-agent", "immune-agent-interactive", "immune-agent-api", "immune-agent-web"]:
@@ -2283,7 +2283,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         ports = cfg["services"]["immune-agent-api"].get("ports", [])
         assert any("8000" in str(p) for p in ports)
@@ -2293,7 +2293,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         ports = cfg["services"]["immune-agent-web"].get("ports", [])
         assert any("8501" in str(p) for p in ports)
@@ -2303,7 +2303,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         hc = cfg["services"]["immune-agent-api"].get("healthcheck")
         assert hc is not None, "API service missing healthcheck"
@@ -2315,7 +2315,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         hc = cfg["services"]["immune-agent-web"].get("healthcheck")
         assert hc is not None, "Web service missing healthcheck"
@@ -2327,7 +2327,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         for svc in ["immune-agent-api", "immune-agent-web"]:
             hc = cfg["services"][svc].get("healthcheck", {})
@@ -2340,7 +2340,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         deps = cfg["services"]["immune-agent-api"].get("depends_on", {})
         assert "immune-agent" in deps, "API should depend on base agent"
@@ -2350,7 +2350,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         deps = cfg["services"]["immune-agent-interactive"].get("depends_on", {})
         assert "immune-agent" in deps, "Interactive should depend on base agent"
@@ -2360,7 +2360,7 @@ class TestDockerCompose:
 
         import yaml
         path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docker-compose.yml")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         deps = cfg["services"]["immune-agent-web"].get("depends_on", {})
         assert "immune-agent-api" in deps, "Web should depend on API"

@@ -1,5 +1,6 @@
 """免疫记忆系统 - 基于 ChromaDB 的抗体存储与检索。"""
 
+import json
 import os
 import time
 import uuid
@@ -393,6 +394,57 @@ class ImmunologyMemory:
             except Exception:
                 return 0
         return self._in_memory.count()
+
+    # ------------------------------------------------------------------
+    # Antibody export / import (cross-instance immune memory sharing)
+    # ------------------------------------------------------------------
+    def export_antibodies(self, path: str | None = None) -> str:
+        """Export all antibodies to a JSON file. Returns the path."""
+        if path is None:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            export_dir = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "exports",
+            )
+            os.makedirs(export_dir, exist_ok=True)
+            path = os.path.join(export_dir, f"antibodies_{ts}.json")
+
+        antibodies = self.list_antibodies(limit=10000)
+        data = {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "backend": self._backend,
+            "count": len(antibodies),
+            "antibodies": antibodies,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        logger.info("Exported %d antibodies to %s", len(antibodies), path)
+        return path
+
+    def import_antibodies(self, path: str) -> int:
+        """Import antibodies from a JSON export file. Returns count imported."""
+        if not os.path.exists(path):
+            logger.warning("Import file not found: %s", path)
+            return 0
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed to read import file: %s", e)
+            return 0
+
+        imported = 0
+        for ab in data.get("antibodies", []):
+            stored = self.store_antibody(
+                error_pattern=ab.get("error_pattern", "imported"),
+                antibody_code=ab.get("code", ""),
+                context=ab.get("context", ""),
+            )
+            if stored:
+                imported += 1
+
+        logger.info("Imported %d/%d antibodies from %s", imported,
+                     len(data.get("antibodies", [])), path)
+        return imported
 
     def _auto_decay(self) -> None:
         """Run decay at startup to prune old antibodies. Silently handles empty stores."""

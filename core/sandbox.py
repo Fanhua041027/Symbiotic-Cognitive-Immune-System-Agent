@@ -192,7 +192,8 @@ def validate_e2b(code: str) -> tuple[bool, str]:
             # Check for empty/no-op execution
             stdout = getattr(result, "stdout", None)
             has_logs = getattr(result, "logs", None)
-            if not (isinstance(stdout, str) and stdout) and not has_logs and len(code) > 100:
+            has_output = isinstance(stdout, str) and stdout
+            if not has_output and not has_logs and len(code) > 100:
                 logger.debug("E2B result produced no output for non-trivial code")
             return True, ""
     except Exception as e:

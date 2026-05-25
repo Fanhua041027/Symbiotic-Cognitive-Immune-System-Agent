@@ -233,6 +233,9 @@ async def list_sessions():
 async def get_session(session_id: str):
     """Get full details of a specific session."""
     from core.agent_session import AgentSession
+    # Validate session_id to prevent path traversal
+    if not AgentSession._validate_session_id(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID")
     try:
         session = AgentSession.load(session_id)
         if session is None:

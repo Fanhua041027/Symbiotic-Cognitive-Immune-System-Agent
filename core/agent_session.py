@@ -180,7 +180,10 @@ class AgentSession:
         Only allows alphanumeric characters, hyphens, and underscores.
         """
         if not cls._validate_session_id(session_id):
-            logger.warning("Invalid session_id rejected (possible path traversal): %s", session_id)
+            logger.warning(
+                "Invalid session_id rejected (possible path traversal): %s",
+                session_id,
+            )
             return None
         path = os.path.join(SESSIONS_DIR, f"session_{session_id}.json")
         if not os.path.exists(path):
@@ -214,7 +217,8 @@ class AgentSession:
         """
         if not session_id or len(session_id) > 64:
             return False
-        if ".." in session_id or "/" in session_id or "\\" in session_id or "\0" in session_id:
+        bad = {"..", "/", "\\", "\0"}
+        if any(c in session_id for c in bad):
             return False
         return all(c.isalnum() or c in "-_." for c in session_id)
 

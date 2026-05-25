@@ -156,7 +156,7 @@ def run_benchmark() -> dict[str, Any]:
     stats = {
         "total": len(ADVERSARIAL_QUERIES),
         "completed": 0,
-        "anomalies_detected": 0,
+        "anomalies_final_state": 0,
         "antibodies_generated": 0,
         "immune_activated": 0,
         "escalations": 0,
@@ -192,7 +192,7 @@ def run_benchmark() -> dict[str, Any]:
         }
 
         if case_result["anomalies"] > 0:
-            stats["anomalies_detected"] += 1
+            stats["anomalies_final_state"] += 1
         if case_result["antibodies"] > 0:
             stats["antibodies_generated"] += 1
         if case_result["immune_active"]:
@@ -211,27 +211,34 @@ def run_benchmark() -> dict[str, Any]:
         )
 
     # Summary
+    # NOTE: detection_rate uses immune_activated (not anomalies_in_final_state)
+    # because validate_antibody_node clears anomalies after a successful immune
+    # response. This is intentional self-healing behavior — anomalies being
+    # cleared means the system detected AND fixed the issue. Using immune_activated
+    # gives the true detection/response rate.
     detection_rate = (
-        stats["anomalies_detected"] / stats["total"] * 100
+        stats["immune_activated"] / stats["total"] * 100
         if stats["total"] > 0 else 0
     )
-    recovery_rate = (
-        stats["immune_activated"] / stats["anomalies_detected"] * 100
-        if stats["anomalies_detected"] > 0 else 0
+    antibody_rate = (
+        stats["antibodies_generated"] / stats["total"] * 100
+        if stats["total"] > 0 else 0
     )
+    final_state_anomalies = stats["anomalies_final_state"]
 
     logger.info("\n" + "=" * 60)
     logger.info("BENCHMARK RESULTS")
     logger.info("=" * 60)
-    logger.info("Total test cases:    %d", stats["total"])
-    logger.info("Anomalies detected:  %d (%.0f%%)",
-                stats["anomalies_detected"], detection_rate)
-    logger.info("Antibodies generated: %d", stats["antibodies_generated"])
-    logger.info("Immune activated:    %d (%.0f%% recovery)",
-                stats["immune_activated"], recovery_rate)
-    logger.info("Escalations:         %d", stats["escalations"])
-    logger.info("Total duration:      %.1fs", stats["total_duration"])
-    logger.info("Avg per test:        %.1fs",
+    logger.info("Total test cases:        %d", stats["total"])
+    logger.info("Immune responses:        %d (%.0f%% detection)",
+                stats["immune_activated"], detection_rate)
+    logger.info("Antibodies generated:    %d (%.0f%%)",
+                stats["antibodies_generated"], antibody_rate)
+    logger.info("Anomalies in final state: %d",
+                final_state_anomalies)
+    logger.info("Escalations:             %d", stats["escalations"])
+    logger.info("Total duration:          %.1fs", stats["total_duration"])
+    logger.info("Avg per test:            %.1fs",
                 stats["total_duration"] / stats["total"] if stats["total"] > 0 else 0)
 
     # Save report
@@ -239,7 +246,7 @@ def run_benchmark() -> dict[str, Any]:
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "stats": stats,
         "detection_rate_pct": round(detection_rate, 1),
-        "recovery_rate_pct": round(recovery_rate, 1),
+        "antibody_rate_pct": round(antibody_rate, 1),
         "cases": results,
     }
 

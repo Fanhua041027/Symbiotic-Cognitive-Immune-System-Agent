@@ -68,7 +68,8 @@ def get_limiter() -> TokenBucketRateLimiter | None:
             return _limiter
         limit = cfg("RATE_LIMIT_REQUESTS", None)
         if limit is None:
-            logger = __import__("core.logger", fromlist=["setup_logger"]).setup_logger("ratelimit")
+            _mod = __import__("core.logger", fromlist=["setup_logger"])
+            logger = _mod.setup_logger("ratelimit")
             logger.info("Rate limiting disabled (RATE_LIMIT_REQUESTS not set)")
             return None
         window = int(cfg("RATE_LIMIT_WINDOW", 60))  # type: ignore[arg-type]

@@ -23,13 +23,27 @@ logger = setup_logger("sandbox")
 # ---------------------------------------------------------------------------
 def validate_simulated(code: str) -> bool:
     """Quick keyword-based heuristic to check if code looks like a real fix."""
-    fix_keywords = [
-        "fix", "guard", "limit", "check", "max", "break",
-        "return", "try", "except", "if", "validate",
+    # Require at least one structural control-flow keyword
+    control_keywords = [
+        "if", "for", "while", "try", "except", "def ", "class ",
+        "return", "break", "continue", "raise", "with ",
     ]
-    has_keywords = any(kw in code.lower() for kw in fix_keywords)
-    is_long_enough = len(code) > 40
-    return has_keywords and is_long_enough
+    has_control = any(kw in code for kw in control_keywords)
+
+    # Require at least one fix-relevant keyword
+    fix_keywords = [
+        "fix", "guard", "limit", "check", "max", "validate",
+        "prevent", "ensure", "error", "except",
+    ]
+    has_fix = any(kw in code.lower() for kw in fix_keywords)
+
+    # Stricter minimum length to encourage substantive fixes
+    is_long_enough = len(code) > 60
+
+    # Must NOT be just a stub or comment
+    has_actual_code = not code.strip().startswith("#") and len(code.strip()) > 20
+
+    return has_control and has_fix and is_long_enough and has_actual_code
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +168,9 @@ def _docker_available() -> bool:
 # ---------------------------------------------------------------------------
 def validate_e2b(code: str) -> tuple[bool, str]:
     """Run generated Python code inside an E2B cloud sandbox for real testing."""
+    if not code or not code.strip():
+        return False, "Empty antibody code"
+
     try:
         from e2b_code_interpreter import Sandbox
     except ImportError:
@@ -163,8 +180,18 @@ def validate_e2b(code: str) -> tuple[bool, str]:
     try:
         with Sandbox() as sbx:
             result = sbx.run_code(code)
+            # Check explicit error field
             if result.error:
                 return False, f"Runtime error: {result.error.name}: {result.error.value}"
+            # Check for stderr output that indicates non-zero exit or execution failure
+            stderr = getattr(result, "stderr", None)
+            if stderr and stderr.strip():
+                return False, f"Execution produced stderr: {stderr.strip()[:200]}"
+            # Check for empty/no-op execution
+            stdout = getattr(result, "stdout", None)
+            has_logs = getattr(result, "logs", None)
+            if not stdout and not has_logs and len(code) > 100:
+                logger.debug("E2B result produced no output for non-trivial code")
             return True, ""
     except Exception as e:
         logger.error("E2B validation error: %s", e)

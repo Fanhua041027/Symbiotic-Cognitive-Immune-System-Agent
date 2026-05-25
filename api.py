@@ -33,10 +33,16 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel, Field
 except ImportError:
-    print("fastapi/uvicorn not installed. Run: pip install fastapi uvicorn")
+    import warnings
+    msg = "fastapi/uvicorn not installed. Run: pip install fastapi uvicorn"
+    print(msg)
+    warnings.warn(msg, RuntimeWarning, stacklevel=2)
     # Provide no-op stubs so the module can be imported without crashing
-    def _identity(f): return f
-    def _noop_decorator(*a, **kw): return _identity
+    def _warn_and_identity(f):
+        warnings.warn(f"FastAPI route '{getattr(f, '__name__', '?')}' called with stubs"
+                      " — install fastapi for real operation.", RuntimeWarning, stacklevel=2)
+        return f
+    def _noop_decorator(*a, **kw): return _warn_and_identity(a[0]) if a else _warn_and_identity
     def _make_mock_app(*a, **kw):
         return type("MockApp", (), {
             "get": _noop_decorator, "post": _noop_decorator,

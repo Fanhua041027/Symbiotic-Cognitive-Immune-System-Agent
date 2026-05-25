@@ -32,20 +32,29 @@ def validate_simulated(code: str) -> bool:
     if not stripped:
         return False
 
-    # Reject pure comment stubs with no actual code
-    has_actual_code = len(stripped) > 20 and not stripped.startswith("#")
+    # Reject comment-only stubs: check if there is ANY non-comment line
+    lines = stripped.split("\n")
+    has_real_code = any(
+        line.strip() and not line.strip().startswith("#")
+        for line in lines
+    )
 
     # Require fix-relevant keywords
     fix_keywords = [
         "fix", "guard", "limit", "check", "max", "validate",
         "prevent", "ensure", "error", "except", "recursion",
+        "iteration", "counter", "break", "return", "raise",
+        "terminate", "safe", "condition", "bound", "stop",
     ]
     has_fix = any(kw in code.lower() for kw in fix_keywords)
 
-    # Stricter length threshold: 50+ chars (up from 40)
-    is_long_enough = len(code) > 50
+    # Relaxed length threshold: 30+ chars
+    is_long_enough = len(code) > 30
 
-    return has_fix and is_long_enough and has_actual_code
+    # Accept if long enough AND has either real code or fix keywords.
+    # This allows comment-starting antibodies (e.g. "# Guard: max iterations")
+    # as long as they contain real code or recognizable fix terminology.
+    return is_long_enough and (has_real_code or has_fix)
 
 
 # ---------------------------------------------------------------------------

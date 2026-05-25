@@ -82,14 +82,15 @@ class SlackNotifier:
         """Send benchmark results as a Slack message."""
         if not self._available():
             return False
+        s = stats.get("stats", stats)
         detection = stats.get("detection_rate_pct", 0)
-        recovery = stats.get("recovery_rate_pct", 0)
+        antibody_rate = stats.get("antibody_rate_pct", 0)
         text = (
             f"📊 *Adversarial Benchmark Complete*\n"
             f"• Detection Rate: {detection}%\n"
-            f"• Recovery Rate: {recovery}%\n"
-            f"• Total Tests: {stats.get('stats', {}).get('total', 0)}\n"
-            f"• Escalations: {stats.get('stats', {}).get('escalations', 0)}"
+            f"• Antibody Rate: {antibody_rate}%\n"
+            f"• Total Tests: {s.get('total', 0)}\n"
+            f"• Immune Activated: {s.get('immune_activated', 0)}"
         )
         return self.send_message(text)
 

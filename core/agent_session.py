@@ -174,7 +174,14 @@ class AgentSession:
 
     @classmethod
     def load(cls, session_id: str) -> "AgentSession | None":
-        """Load a session from disk."""
+        """Load a session from disk.
+
+        Validates session_id to prevent path traversal attacks.
+        Only allows alphanumeric characters, hyphens, and underscores.
+        """
+        if not cls._validate_session_id(session_id):
+            logger.warning("Invalid session_id rejected (possible path traversal): %s", session_id)
+            return None
         path = os.path.join(SESSIONS_DIR, f"session_{session_id}.json")
         if not os.path.exists(path):
             return None
@@ -197,6 +204,35 @@ class AgentSession:
         except Exception as e:
             logger.warning("Failed to load session %s: %s", session_id, e)
             return None
+
+    @staticmethod
+    def _validate_session_id(session_id: str) -> bool:
+        """Validate session_id to prevent path traversal.
+
+        Only allows: alphanumeric, hyphens, underscores, dots (for UUID hex and similar).
+        Rejects sequences like '..', '/', '\\', null bytes.
+        """
+        if not session_id or len(session_id) > 64:
+            return False
+        if ".." in session_id or "/" in session_id or "\\" in session_id or "\0" in session_id:
+            return False
+        return all(c.isalnum() or c in "-_." for c in session_id)
+
+    def _check_max_turns_rotation(self) -> "AgentSession | None":
+        """Check if session exceeds max turns and return a new session if so.
+
+        Called before recording a turn. If max_turns is exceeded, saves the current
+        session (for archival) and returns a fresh session. Otherwise returns None.
+        """
+        if len(self._turns) >= self._max_turns:
+            logger.info(
+                "Session %s reached max turns (%d), rotating to new session",
+                self.session_id, self._max_turns,
+            )
+            self.save()
+            new_session = AgentSession(max_turns=self._max_turns)
+            return new_session
+        return None
 
     @staticmethod
     def list_sessions() -> list[dict]:
@@ -239,10 +275,18 @@ def _latest_saved_session_id() -> str | None:
 
 
 def get_session() -> AgentSession:
-    """Get or create the global active session. Restores from disk if available."""
+    """Get or create the global active session. Restores from disk if available.
+
+    Checks max turns before returning; rotates to a new session if exceeded.
+    """
     global _active_session
     with _active_session_lock:
         if _active_session is not None:
+            # Enforce max turns: rotate if session is full
+            rotated = _active_session._check_max_turns_rotation()
+            if rotated is not None:
+                _active_session = rotated
+                logger.info("Session rotated (turns=%d)", _active_session._max_turns)
             return _active_session
         # Try restoring the most recent saved session
         latest_id = _latest_saved_session_id()
@@ -253,6 +297,10 @@ def get_session() -> AgentSession:
                 logger.info("Restored session %s (%d turns, %.0fs uptime)",
                             latest_id, len(restored._turns),
                             time.time() - restored._start_time)
+                # Check restored session too
+                rotated = _active_session._check_max_turns_rotation()
+                if rotated is not None:
+                    _active_session = rotated
                 return _active_session
         _active_session = AgentSession(max_turns=_session_max_turns())
         return _active_session

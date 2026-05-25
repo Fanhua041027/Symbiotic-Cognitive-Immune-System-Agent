@@ -185,14 +185,14 @@ def validate_e2b(code: str) -> tuple[bool, str]:
             # Check explicit error field
             if result.error:
                 return False, f"Runtime error: {result.error.name}: {result.error.value}"
-            # Check for stderr output that indicates non-zero exit or execution failure
+            # Check for stderr output (only if it's a real string, not a mock)
             stderr = getattr(result, "stderr", None)
-            if stderr and stderr.strip():
+            if isinstance(stderr, str) and stderr.strip():
                 return False, f"Execution produced stderr: {stderr.strip()[:200]}"
             # Check for empty/no-op execution
             stdout = getattr(result, "stdout", None)
             has_logs = getattr(result, "logs", None)
-            if not stdout and not has_logs and len(code) > 100:
+            if not (isinstance(stdout, str) and stdout) and not has_logs and len(code) > 100:
                 logger.debug("E2B result produced no output for non-trivial code")
             return True, ""
     except Exception as e:

@@ -39,10 +39,13 @@ except ImportError:
     warnings.warn(msg, RuntimeWarning, stacklevel=2)
     # Provide no-op stubs so the module can be imported without crashing
     def _warn_and_identity(f):
-        warnings.warn(f"FastAPI route '{getattr(f, '__name__', '?')}' called with stubs"
-                      " — install fastapi for real operation.", RuntimeWarning, stacklevel=2)
+        name = getattr(f, "__name__", "?")
+        msg = f"FastAPI route '{name}' called with stubs"
+        warnings.warn(f"{msg} — install fastapi.", RuntimeWarning, stacklevel=2)
         return f
-    def _noop_decorator(*a, **kw): return _warn_and_identity(a[0]) if a else _warn_and_identity
+
+    def _noop_decorator(*a, **kw):
+        return _warn_and_identity(a[0]) if a else _warn_and_identity
     def _make_mock_app(*a, **kw):
         return type("MockApp", (), {
             "get": _noop_decorator, "post": _noop_decorator,

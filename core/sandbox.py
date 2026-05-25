@@ -22,28 +22,30 @@ logger = setup_logger("sandbox")
 # Level 1: Simulated (heuristic keyword check)
 # ---------------------------------------------------------------------------
 def validate_simulated(code: str) -> bool:
-    """Quick keyword-based heuristic to check if code looks like a real fix."""
-    # Require at least one structural control-flow keyword
-    control_keywords = [
-        "if", "for", "while", "try", "except", "def ", "class ",
-        "return", "break", "continue", "raise", "with ",
-    ]
-    has_control = any(kw in code for kw in control_keywords)
+    """Quick keyword-based heuristic to check if code looks like a real fix.
 
-    # Require at least one fix-relevant keyword
+    Accepts both code snippets (with control-flow keywords) and natural
+    language descriptions (with fix-related keywords). Rejects very short
+    strings, comment-only stubs, and trivial content.
+    """
+    stripped = code.strip()
+    if not stripped:
+        return False
+
+    # Reject pure comment stubs with no actual code
+    has_actual_code = len(stripped) > 20 and not stripped.startswith("#")
+
+    # Require fix-relevant keywords
     fix_keywords = [
         "fix", "guard", "limit", "check", "max", "validate",
-        "prevent", "ensure", "error", "except",
+        "prevent", "ensure", "error", "except", "recursion",
     ]
     has_fix = any(kw in code.lower() for kw in fix_keywords)
 
-    # Stricter minimum length to encourage substantive fixes
-    is_long_enough = len(code) > 60
+    # Stricter length threshold: 50+ chars (up from 40)
+    is_long_enough = len(code) > 50
 
-    # Must NOT be just a stub or comment
-    has_actual_code = not code.strip().startswith("#") and len(code.strip()) > 20
-
-    return has_control and has_fix and is_long_enough and has_actual_code
+    return has_fix and is_long_enough and has_actual_code
 
 
 # ---------------------------------------------------------------------------

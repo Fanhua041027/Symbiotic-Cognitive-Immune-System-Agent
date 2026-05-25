@@ -464,7 +464,6 @@ with th:
         with cc1:
             if st.button("Clear", use_container_width=True):
                 st.session_state._confirm_clear_hist = True
-                st.rerun()
         if st.session_state.get("_confirm_clear_hist"):
             st.warning("Clear all query history?")
             y, n = st.columns([1, 1])
@@ -473,11 +472,9 @@ with th:
                     st.session_state.query_history = []
                     st.session_state._confirm_clear_hist = False
                     st.toast("History cleared")
-                    st.rerun()
             with n:
                 if st.button("Cancel"):
                     st.session_state._confirm_clear_hist = False
-                    st.rerun()
         with cc2:
             if st.button("Export JSON", use_container_width=True):
                 st.json(h[-50:])
@@ -490,7 +487,8 @@ with tm:
     st.markdown("### Immune Memory")
     cc1, cc2, cc3 = st.columns([1, 1, 3])
     with cc1:
-        if st.button("Refresh", use_container_width=True): st.rerun()
+        if st.button("Refresh", use_container_width=True):
+            st.rerun()
     with cc3:
         search = st.text_input("Filter", placeholder="Search by pattern...", label_visibility="collapsed")
 
@@ -520,11 +518,9 @@ with tm:
                     if st.button("Yes, delete", key=f"yd_{i}_{ab.get('id', '')}", use_container_width=True):
                         mem.delete_antibody(ab.get("id", ""))
                         st.toast("Antibody deleted")
-                        st.rerun()
     st.markdown("---")
     if st.button("Clear All", use_container_width=False):
         st.session_state._confirm_clear_mem = True
-        st.rerun()
     if st.session_state.get("_confirm_clear_mem"):
         cols = st.columns([2, 1, 1])
         with cols[0]: st.warning("Clear all antibodies?")
@@ -533,11 +529,9 @@ with tm:
                 c = mem.clear_all()
                 st.session_state._confirm_clear_mem = False
                 st.toast(f"Cleared {c} antibodies")
-                st.rerun()
         with cols[2]:
             if st.button("No"):
                 st.session_state._confirm_clear_mem = False
-                st.rerun()
 
 # ================================================================
 # TAB 4: Workflow Graph
@@ -570,76 +564,88 @@ with tb:
     # Initialize/resume benchmark state
     if st.button("Run Benchmark", type="primary"):
         from tests.adversarial import ADVERSARIAL_QUERIES
-        st.session_state.bench_queries = list(ADVERSARIAL_QUERIES)
-        st.session_state.bench_idx = 0
-        st.session_state.bench_results = []
-        st.session_state.bench_stats = {"total": len(ADVERSARIAL_QUERIES), "detected": 0, "immune": 0, "dur": 0.0, "errors": 0}
-        st.session_state.bench_abort = False
-        st.rerun()
+        st.session_state._bench_queries = list(ADVERSARIAL_QUERIES)
+        st.session_state._bench_idx = 0
+        st.session_state._bench_results = []
+        st.session_state._bench_stats = {"total": len(ADVERSARIAL_QUERIES), "detected": 0, "immune": 0, "dur": 0.0, "errors": 0}
+        st.session_state._bench_abort = False
+        st.session_state._bench_running = True
 
-    if "bench_idx" in st.session_state and st.session_state.bench_queries:
-        queries = st.session_state.bench_queries
+    if st.session_state.get("_bench_running"):
+        queries = st.session_state._bench_queries
         n_total = len(queries)
-        idx = st.session_state.bench_idx
+        idx = st.session_state._bench_idx
 
-        # Abort button (runs before each test, clickable between st.rerun calls)
         c_abort, _ = st.columns([1, 6])
         with c_abort:
             if st.button("Abort", use_container_width=True):
-                st.session_state.bench_abort = True
+                st.session_state._bench_abort = True
 
-        if st.session_state.bench_abort:
+        if st.session_state._bench_abort:
             st.warning(f"Benchmark aborted after {idx}/{n_total} tests")
-            st.session_state.bench_idx = n_total  # mark complete
-            st.session_state.bench_queries = None
-            st.rerun()
-
-        prog = st.progress(idx / n_total)
-
-        # Live stats
-        live_cols = st.columns(4)
-        lc = [c.empty() for c in live_cols]
-        stats = st.session_state.bench_stats
-        dr = stats["detected"] / max(idx, 1) * 100
-        ir = stats["immune"] / max(stats["detected"], 1) * 100
-        lc[0].metric("Completed", f"{idx}/{n_total}")
-        lc[1].metric("Detected", f'{stats["detected"]} ({dr:.0f}%)')
-        lc[2].metric("Immune", f'{stats["immune"]} ({ir:.0f}%)')
-        lc[3].metric("Avg Time", f'{stats["dur"]/max(idx,1):.1f}s')
-
-        if idx < n_total:
-            q = queries[idx]
-            sts = st.empty()
-            sts.text(f"Test {idx+1}/{n_total}: {q[:80]}...")
-            try:
-                r = run_single_query(q)
-            except Exception as e:
-                logger.error("Benchmark test %d failed: %s", idx+1, e)
-                stats["errors"] += 1
-                st.session_state.bench_results.append({"#": idx+1, "Anomalies": "ERR", "Immune": "—", "Dur": "—"})
-            else:
-                d = r.get("duration", 0.0)
-                has_anom = len(r.get("anomalies", [])) > 0
-                has_immune = r.get("is_immune_active", False)
-                if has_anom: stats["detected"] += 1
-                if has_immune: stats["immune"] += 1
-                stats["dur"] += d
-                st.session_state.bench_results.append({
-                    "#": idx+1, "Anomalies": "Yes" if has_anom else "—",
-                    "Immune": "Yes" if has_immune else "—", "Dur": f"{d:.1f}s",
-                })
-            st.session_state.bench_idx = idx + 1
-            st.rerun()
+            st.session_state._bench_running = False
+            st.session_state._bench_queries = None
+            st.info("Benchmark aborted. Click 'Run Benchmark' to restart.")
         else:
-            st.success("Benchmark complete!")
-            st.toast(f"Benchmark: {stats['total']} tests, {stats['detected']} anomalies detected, {stats['immune']} immune responses", icon="📊")
-            st.dataframe(st.session_state.bench_results[-50:], use_container_width=True)
-            # Cleanup state
-            del st.session_state.bench_queries
-            del st.session_state.bench_idx
-            del st.session_state.bench_results
-            del st.session_state.bench_stats
-            del st.session_state.bench_abort
+            prog = st.progress(0.0)
+            status_text = st.empty()
+
+            stats = st.session_state._bench_stats
+            live_cols = st.columns(4)
+            lc = [c.empty() for c in live_cols]
+
+            # Run all tests synchronously with live updates
+            while idx < n_total:
+                if st.session_state._bench_abort:
+                    break
+
+                q = queries[idx]
+                status_text.text(f"Test {idx+1}/{n_total}: {q[:80]}...")
+                prog.progress((idx + 1) / n_total)
+
+                try:
+                    r = run_single_query(q)
+                except Exception as e:
+                    logger.error("Benchmark test %d failed: %s", idx+1, e)
+                    stats["errors"] += 1
+                    st.session_state._bench_results.append(
+                        {"#": idx+1, "Anomalies": "ERR", "Immune": "—", "Dur": "—"},
+                    )
+                else:
+                    d = r.get("duration", 0.0)
+                    has_anom = len(r.get("anomalies", [])) > 0
+                    has_immune = r.get("is_immune_active", False)
+                    if has_anom: stats["detected"] += 1
+                    if has_immune: stats["immune"] += 1
+                    stats["dur"] += d
+                    st.session_state._bench_results.append({
+                        "#": idx+1, "Anomalies": "Yes" if has_anom else "—",
+                        "Immune": "Yes" if has_immune else "—", "Dur": f"{d:.1f}s",
+                    })
+
+                idx += 1
+                st.session_state._bench_idx = idx
+
+                # Live stats update
+                dr = stats["detected"] / max(idx, 1) * 100
+                ir = stats["immune"] / max(stats["detected"], 1) * 100
+                lc[0].metric("Completed", f"{idx}/{n_total}")
+                lc[1].metric("Detected", f'{stats["detected"]} ({dr:.0f}%)')
+                lc[2].metric("Immune", f'{stats["immune"]} ({ir:.0f}%)')
+                lc[3].metric("Avg Time", f'{stats["dur"]/max(idx,1):.1f}s')
+
+            st.session_state._bench_running = False
+
+            if not st.session_state._bench_abort:
+                st.success("Benchmark complete!")
+                st.toast(
+                    f"Benchmark: {stats['total']} tests, {stats['detected']} anomalies, "
+                    f"{stats['immune']} immune responses",
+                    icon="📊",
+                )
+                st.dataframe(st.session_state._bench_results[-50:], use_container_width=True)
+            else:
+                st.dataframe(st.session_state._bench_results[-50:], use_container_width=True)
 
 # ================================================================
 # TAB 6: Metrics

@@ -2,13 +2,11 @@
 .git
 .gitignore
 .gitattributes
-.gitmodules
 
-# Environment
+# Environment (use env_file in docker-compose)
 .env
 .envrc
 .env.local
-.env.example
 .env.production
 *.env
 
@@ -20,8 +18,6 @@ __pycache__/
 .venv/
 venv/
 env/
-.venv
-venv
 dist/
 build/
 *.egg
@@ -29,7 +25,6 @@ build/
 .ruff_cache/
 .mypy_cache/
 .dmypy.json
-dmypy.json
 
 # IDE
 .idea/
@@ -42,30 +37,27 @@ dmypy.json
 # OS
 .DS_Store
 Thumbs.db
-Desktop.ini
 
-# Project data (generated at runtime)
+# Generated data (mounted as volumes)
 .immune_db/
 logs/
 escalations/
 benchmarks/
 metrics/
 sessions/
+reports/
+trainer/
+exports/
 
-# CI / quality
+# Dev
+tests/
 .github/
 .pre-commit-config.yaml
-
-# Docs and dev
-*.md
+setup_project.py
 Makefile
 pyproject.toml
 
-# Tests (not needed at runtime)
-tests/
-
-# Dev/init tools
-setup_project.py
-2026519/
-行动指南.txt
+# Docs
+*.md
+*.txt
 ui_screenshot.png

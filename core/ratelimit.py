@@ -25,6 +25,8 @@ class TokenBucketRateLimiter:
     """Sliding window per-key rate limiter.
 
     Each key gets a window of `window_seconds` with at most `max_requests` calls.
+
+    Thread-safe: uses a lock for all counter mutations.
     """
 
     def __init__(self, max_requests: int = 30, window_seconds: int = 60):
@@ -33,8 +35,11 @@ class TokenBucketRateLimiter:
         self._buckets: dict[str, list[float]] = {}
         self._lock = threading.Lock()
 
-    def check(self, key: str) -> None:
-        """Record a request for the given key. Raises RateLimitExceeded if over limit."""
+    def check(self, key: str) -> int:
+        """Record a request for the given key. Raises RateLimitExceeded if over limit.
+
+        Returns the number of remaining requests in the current window.
+        """
         now = time.time()
         cutoff = now - self.window_seconds
         with self._lock:
@@ -51,6 +56,25 @@ class TokenBucketRateLimiter:
                     f"{self.window_seconds}s. Retry after {retry_after}s.",
                 )
             timestamps.append(now)
+            return self.max_requests - len(timestamps)
+
+    def remaining(self, key: str) -> int:
+        """Return remaining requests for *key* without recording a request."""
+        now = time.time()
+        cutoff = now - self.window_seconds
+        with self._lock:
+            timestamps = self._buckets.get(key, [])
+            while timestamps and timestamps[0] < cutoff:
+                timestamps.pop(0)
+            return max(0, self.max_requests - len(timestamps))
+
+    def reset(self, key: str | None = None) -> None:
+        """Reset rate-limit state for *key* (or all keys)."""
+        with self._lock:
+            if key:
+                self._buckets.pop(key, None)
+            else:
+                self._buckets.clear()
 
 
 # Global instance — configured via RATE_LIMIT_REQUESTS and RATE_LIMIT_WINDOW env vars

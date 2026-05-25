@@ -1,87 +1,150 @@
+# ============================================================================
+# Symbiotic Cognitive Immune System Agent — Production Docker Compose
+# ============================================================================
+#
+# Usage:
+#   docker compose build
+#   docker compose up -d              # Start all services
+#   docker compose up immune-agent    # CLI demo only
+#   docker compose logs -f            # Follow logs
+#
+# Environment:
+#   Copy .env.example to .env and configure your API keys.
+
+x-common-env: &common-env
+  env_file:
+    - .env
+  environment:
+    - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    - SANDBOX_MODE=${SANDBOX_MODE:-simulated}
+  volumes:
+    # Persistent data (survives container restarts)
+    - immune_db:/app/.immune_db
+    - immune_logs:/app/logs
+    - immune_escalations:/app/escalations
+    - immune_metrics:/app/metrics
+    - immune_sessions:/app/sessions
+    - immune_benchmarks:/app/benchmarks
+    - immune_reports:/app/reports
+    - immune_trainer:/app/trainer
+    - immune_exports:/app/exports
+    # Chroma ONNX cache (shared volume for embedding model)
+    - chroma_cache:/home/agent/.cache/chroma
+  restart: unless-stopped
+  networks:
+    - immune-net
+
 services:
+  # --------------------------------------------------------------------------
+  # Core agent (CLI / demo)
+  # --------------------------------------------------------------------------
   immune-agent:
     build: .
     container_name: symbiotic-immune-agent
-    env_file:
-      - .env
-    volumes:
-      - ./.immune_db:/app/.immune_db
-      - ./logs:/app/logs
-      - ./escalations:/app/escalations
-      - ~/.cache/chroma:/home/agent/.cache/chroma
+    <<: *common-env
     command: python immune_agent.py
+    profiles: ["core"]
 
+  # --------------------------------------------------------------------------
+  # Interactive mode
+  # --------------------------------------------------------------------------
   immune-agent-interactive:
     build: .
     container_name: symbiotic-immune-agent-interactive
-    depends_on:
-      immune-agent:
-        condition: service_started
-    env_file:
-      - .env
-    volumes:
-      - ./.immune_db:/app/.immune_db
-      - ./logs:/app/logs
-      - ./escalations:/app/escalations
-      - ~/.cache/chroma:/home/agent/.cache/chroma
+    <<: *common-env
     stdin_open: true
     tty: true
     command: python immune_agent.py --interactive
-
-  immune-agent-api:
-    build: .
-    container_name: symbiotic-immune-agent-api
-    env_file:
-      - .env
-    ports:
-      - "8000:8000"
+    profiles: ["interactive"]
     depends_on:
       immune-agent:
         condition: service_started
-    volumes:
-      - ./.immune_db:/app/.immune_db
-      - ./logs:/app/logs
-      - ./escalations:/app/escalations
-      - ~/.cache/chroma:/home/agent/.cache/chroma
-    command: uvicorn api:app --host 0.0.0.0 --port 8000
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status == 200 else 1)",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
-  immune-agent-web:
+  # --------------------------------------------------------------------------
+  # REST API (FastAPI)
+  # --------------------------------------------------------------------------
+  immune-agent-api:
     build: .
-    container_name: symbiotic-immune-agent-web
-    env_file:
-      - .env
+    container_name: symbiotic-immune-agent-api
+    <<: *common-env
     ports:
-      - "8501:8501"
-    depends_on:
-      immune-agent-api:
-        condition: service_started
-    volumes:
-      - ./.immune_db:/app/.immune_db
-      - ./logs:/app/logs
-      - ./escalations:/app/escalations
-      - ~/.cache/chroma:/home/agent/.cache/chroma
-    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+      - "${API_PORT:-8000}:8000"
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --workers 2
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501').status == 200 else 1)",
-        ]
+      test: ["CMD", "python", "-c",
+        "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
+    profiles: ["api", "all"]
+    depends_on:
+      immune-agent:
+        condition: service_started
+
+  # --------------------------------------------------------------------------
+  # Web UI (Streamlit)
+  # --------------------------------------------------------------------------
+  immune-agent-web:
+    build: .
+    container_name: symbiotic-immune-agent-web
+    <<: *common-env
+    ports:
+      - "${WEBUI_PORT:-8501}:8501"
+    command: >
+      streamlit run app.py
+      --server.port=8501
+      --server.address=0.0.0.0
+      --server.headless=true
+      --browser.gatherUsageStats=false
+    healthcheck:
+      test: ["CMD", "python", "-c",
+        "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501').status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    profiles: ["web", "all"]
+    depends_on:
+      immune-agent-api:
+        condition: service_started
+
+  # --------------------------------------------------------------------------
+  # Daemon mode (continuous self-healing)
+  # --------------------------------------------------------------------------
+  immune-agent-daemon:
+    build: .
+    container_name: symbiotic-immune-agent-daemon
+    <<: *common-env
+    command: python immune_agent.py --daemon --heartbeat 60
+    profiles: ["daemon"]
+    depends_on:
+      immune-agent:
+        condition: service_started
+
+# --------------------------------------------------------------------------
+# Named volumes for persistent data
+# --------------------------------------------------------------------------
+volumes:
+  immune_db:
+  immune_logs:
+  immune_escalations:
+  immune_metrics:
+  immune_sessions:
+  immune_benchmarks:
+  immune_reports:
+  immune_trainer:
+  immune_exports:
+  chroma_cache:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${HOME:-~}/.cache/chroma
+      o: bind
+
+# --------------------------------------------------------------------------
+# Network
+# --------------------------------------------------------------------------
+networks:
+  immune-net:
+    driver: bridge

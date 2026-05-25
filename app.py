@@ -310,8 +310,8 @@ if "query_history" not in st.session_state:
     except Exception:
         st.session_state.query_history = []
 
-tabs = st.tabs(["Run Query", "History", "Memory", "Workflow", "Benchmark", "Metrics"])
-tq, th, tm, tg, tb, tmet = tabs
+tabs = st.tabs(["Run Query", "History", "Memory", "Workflow", "Benchmark", "Metrics", "Training"])
+tq, th, tm, tg, tb, tmet, ttr = tabs
 
 # ================================================================
 # TAB 1: Run Query
@@ -710,6 +710,81 @@ with tmet:
             p = mt.save_report(); st.success(f"Saved: {p}")
     with cx2:
         if st.button("Reset", use_container_width=True): st.rerun()
+
+# ================================================================
+# TAB 7: Training (v1.2.0)
+# ================================================================
+with ttr:
+    st.markdown("### Active Adversarial Training")
+    st.markdown("Run automated red-team training to improve immune system robustness.")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        train_epochs = st.number_input("Epochs", min_value=1, max_value=20, value=3)
+    with c2:
+        train_qpe = st.number_input("Queries per epoch", min_value=1, max_value=20, value=5)
+    with c3:
+        train_btn = st.button("▶ Start Training", type="primary", use_container_width=True)
+
+    # Training reports browser
+    st.markdown("### Previous Training Reports")
+    try:
+        from core.adversarial_trainer import AdversarialTrainer
+        reports = AdversarialTrainer.list_reports()
+        if reports:
+            for r in reports[:10]:
+                s = r.get("stats", {})
+                st.markdown(f"""
+                <div class="card" style="padding:0.6rem 1rem">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <span style="font-weight:600">{r.get('file', '?')}</span>
+                        <span style="font-size:0.8rem;color:#8e98a3">{r.get('timestamp', '')}</span>
+                    </div>
+                    <div style="display:flex;gap:16px;margin-top:4px;font-size:0.8rem;color:#536471">
+                        <span>Score: {s.get('avg_score', '?')}</span>
+                        <span>Detect: {s.get('detection_rate', '?')}%</span>
+                        <span>Recover: {s.get('recovery_rate', '?')}%</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No training reports yet.")
+    except Exception as e:
+        st.info(f"No training data: {e}")
+
+    if train_btn:
+        st.toast("Starting adversarial training...", icon="🎯")
+        from core.adversarial_trainer import AdversarialTrainer
+        trainer = AdversarialTrainer(epochs=int(train_epochs), queries_per_epoch=int(train_qpe))
+
+        progress_bar = st.progress(0.0)
+        status_text = st.empty()
+        stats_container = st.empty()
+        total = int(train_epochs) * int(train_qpe)
+        completed = [0]
+
+        def _progress(epoch, qidx, query_preview):
+            completed[0] += 1
+            pct = completed[0] / total
+            progress_bar.progress(pct)
+            status_text.text(f"Epoch {epoch}: query {qidx} — {query_preview}")
+
+        with st.spinner("Training in progress..."):
+            stats = trainer.train(progress_callback=_progress)
+
+        progress_bar.progress(1.0)
+        status_text.text("Training complete!")
+
+        st.success(f"Score: {stats.get('avg_score', 0):.2f} | "
+                   f"Detection: {stats.get('detection_rate', 0)}% | "
+                   f"Recovery: {stats.get('recovery_rate', 0)}%")
+
+        # Generate and show report link
+        from core.reports import generate_training_report, save_report
+        html = generate_training_report(stats, trainer._results)
+        path = save_report(html)
+        st.info(f"Report saved: `{path}`")
+        st.toast("Training complete! Report generated.", icon="✅")
 
 # Auto-refresh via browser meta tag (non-blocking)
 if auto_refresh:

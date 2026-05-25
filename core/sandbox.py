@@ -22,14 +22,30 @@ logger = setup_logger("sandbox")
 # Level 1: Simulated (heuristic keyword check)
 # ---------------------------------------------------------------------------
 def validate_simulated(code: str) -> bool:
-    """Quick keyword-based heuristic to check if code looks like a real fix."""
+    """Quick keyword-based heuristic to check if code looks like a real fix.
+
+    Accepts both code snippets (with control-flow keywords) and natural
+    language descriptions (with fix-related keywords). Rejects very short
+    strings, comment-only stubs, and trivial content.
+    """
+    stripped = code.strip()
+    if not stripped:
+        return False
+
+    # Reject pure comment stubs with no actual code
+    has_actual_code = len(stripped) > 20 and not stripped.startswith("#")
+
+    # Require fix-relevant keywords
     fix_keywords = [
-        "fix", "guard", "limit", "check", "max", "break",
-        "return", "try", "except", "if", "validate",
+        "fix", "guard", "limit", "check", "max", "validate",
+        "prevent", "ensure", "error", "except", "recursion",
     ]
-    has_keywords = any(kw in code.lower() for kw in fix_keywords)
-    is_long_enough = len(code) > 40
-    return has_keywords and is_long_enough
+    has_fix = any(kw in code.lower() for kw in fix_keywords)
+
+    # Stricter length threshold: 50+ chars (up from 40)
+    is_long_enough = len(code) > 50
+
+    return has_fix and is_long_enough and has_actual_code
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +170,9 @@ def _docker_available() -> bool:
 # ---------------------------------------------------------------------------
 def validate_e2b(code: str) -> tuple[bool, str]:
     """Run generated Python code inside an E2B cloud sandbox for real testing."""
+    if not code or not code.strip():
+        return False, "Empty antibody code"
+
     try:
         from e2b_code_interpreter import Sandbox
     except ImportError:
@@ -163,8 +182,19 @@ def validate_e2b(code: str) -> tuple[bool, str]:
     try:
         with Sandbox() as sbx:
             result = sbx.run_code(code)
+            # Check explicit error field
             if result.error:
                 return False, f"Runtime error: {result.error.name}: {result.error.value}"
+            # Check for stderr output (only if it's a real string, not a mock)
+            stderr = getattr(result, "stderr", None)
+            if isinstance(stderr, str) and stderr.strip():
+                return False, f"Execution produced stderr: {stderr.strip()[:200]}"
+            # Check for empty/no-op execution
+            stdout = getattr(result, "stdout", None)
+            has_logs = getattr(result, "logs", None)
+            has_output = isinstance(stdout, str) and stdout
+            if not has_output and not has_logs and len(code) > 100:
+                logger.debug("E2B result produced no output for non-trivial code")
             return True, ""
     except Exception as e:
         logger.error("E2B validation error: %s", e)

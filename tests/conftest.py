@@ -34,6 +34,10 @@ def _clear_caches():
     import core.config as cfg_mod
     cfg_mod._validated = False
     cfg_mod._values.clear()
+    # Re-read .env to undo any os.environ pollution from previous tests
+    import dotenv
+    dotenv.load_dotenv(cfg_mod.CONFIG_FILE, override=True)
+    cfg_mod.validate_all()
 
 
 @pytest.fixture

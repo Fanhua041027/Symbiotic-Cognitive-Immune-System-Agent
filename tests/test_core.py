@@ -2464,3 +2464,285 @@ class TestRateLimiter:
             concurrent.futures.wait(futures)
 
         assert limiter.remaining("shared-key") == 200 - n
+
+
+class TestNotifications:
+    """Tests for SlackNotifier, WebhookNotifier, and NotificationManager."""
+
+    def test_slack_notifier_unavailable_when_no_url(self):
+        """SlackNotifier without webhook URL should be unavailable."""
+        from core.notifications import SlackNotifier
+        notifier = SlackNotifier(webhook_url=None)
+        assert not notifier._available()
+
+    def test_slack_send_message_success(self):
+        """Successful POST to Slack returns True."""
+        from unittest.mock import patch
+        from core.notifications import SlackNotifier
+
+        notifier = SlackNotifier(webhook_url="https://hooks.slack.com/test")
+        with patch("requests.post") as mock_post:
+            mock_post.return_value.ok = True
+            mock_post.return_value.raise_for_status.return_value = None
+            result = notifier.send_message("hello")
+        assert result is True
+        mock_post.assert_called_once()
+
+    def test_slack_send_message_failure(self):
+        """Failed POST to Slack returns False."""
+        import requests
+        from unittest.mock import patch
+        from core.notifications import SlackNotifier
+
+        notifier = SlackNotifier(webhook_url="https://hooks.slack.com/test")
+        with patch("requests.post") as mock_post:
+            mock_post.return_value.ok = False
+            mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("HTTP 500")
+            result = notifier.send_message("hello")
+        assert result is False
+
+    def test_slack_send_escalation(self):
+        """Escalation message includes formatted blocks."""
+        from unittest.mock import patch
+        from core.notifications import SlackNotifier
+
+        notifier = SlackNotifier(webhook_url="https://hooks.slack.com/test")
+        report = {
+            "consecutive_failures": 5,
+            "threshold": 3,
+            "history": [{"query": "test query", "anomaly": "infinite loop"}],
+            "generated_at": "2025-01-01T00:00:00",
+        }
+        with patch("requests.post") as mock_post:
+            mock_post.return_value.ok = True
+            notifier.send_escalation(report)
+        _, kwargs = mock_post.call_args
+        payload = kwargs["json"]
+        assert payload["text"] == "Immune System Escalation Notice"
+        # Should have blocks (header, section, divider, context)
+        assert len(payload["blocks"]) >= 4
+
+    def test_webhook_notifier_unavailable_when_no_url(self):
+        """WebhookNotifier without URL should be unavailable."""
+        from core.notifications import WebhookNotifier
+        notifier = WebhookNotifier(url=None)
+        assert not notifier._available()
+
+    def test_webhook_send_success(self):
+        """Successful webhook POST returns True."""
+        from unittest.mock import patch
+        from core.notifications import WebhookNotifier
+
+        notifier = WebhookNotifier(url="https://webhook.test/endpoint")
+        with patch("requests.post") as mock_post:
+            mock_post.return_value.ok = True
+            result = notifier.send({"event": "test"})
+        assert result is True
+        mock_post.assert_called_once()
+
+    def test_notification_manager_routes_to_all_channels(self, monkeypatch):
+        """NotificationManager.notify_escalation calls both Slack and webhook."""
+        from unittest.mock import MagicMock
+        from core.notifications import NotificationManager
+
+        mgr = NotificationManager()
+        mgr._slack = MagicMock()
+        mgr._webhook = MagicMock()
+
+        mgr.notify_escalation({"test": "report"})
+        mgr._slack.send_escalation.assert_called_once_with({"test": "report"})
+        mgr._webhook.send.assert_called_once()
+
+    def test_notification_manager_notify_generic(self, monkeypatch):
+        """Generic notify calls both channels."""
+        from unittest.mock import MagicMock
+        from core.notifications import NotificationManager
+
+        mgr = NotificationManager()
+        mgr._slack = MagicMock()
+        mgr._webhook = MagicMock()
+
+        mgr.notify("Test Title", "Test Message", severity="warn")
+        mgr._slack.send_message.assert_called_once()
+        mgr._webhook.send.assert_called_once()
+
+
+class TestTrainingEvaluator:
+    """Tests for TrainingEvaluator.evaluate() — pure logic, no mocking needed."""
+
+    def test_detected_and_recovered(self):
+        """Full detection + recovery gives max score."""
+        from core.adversarial_trainer import TrainingEvaluator
+
+        result = {
+            "is_immune_active": True,
+            "final_output": "safe code",
+            "antibodies": [{"code": "fix"}],
+        }
+        score = TrainingEvaluator.evaluate("query", "infinite_loop", result)
+        assert score["correctly_detected"] is True
+        assert score["antibody_generated"] is True
+        assert score["immune_activated"] is True
+        assert score["safe_output"] is True
+        assert score["score"] == 1.0
+
+    def test_not_detected_score_is_low(self):
+        """No detection = score 0.2 for having output."""
+        result = {
+            "is_immune_active": False,
+            "final_output": "some output",
+            "antibodies": [],
+        }
+        from core.adversarial_trainer import TrainingEvaluator
+
+        score = TrainingEvaluator.evaluate("query", "test", result)
+        assert score["correctly_detected"] is False
+        assert score["antibody_generated"] is False
+        assert score["immune_activated"] is False
+        assert score["score"] == 0.2  # only safe_output = 0.2
+
+    def test_no_output_no_detection_zero_score(self):
+        """Nothing detected, no output = 0 score."""
+        result = {
+            "is_immune_active": False,
+            "final_output": None,
+            "antibodies": [],
+        }
+        from core.adversarial_trainer import TrainingEvaluator
+
+        score = TrainingEvaluator.evaluate("query", "test", result)
+        assert score["score"] == 0.0
+        assert score["correctly_detected"] is False
+
+    def test_detected_but_not_recovered(self):
+        """Detected anomaly but no output = partial score."""
+        result = {
+            "is_immune_active": True,
+            "final_output": None,
+            "antibodies": [{"code": "fix"}],
+        }
+        from core.adversarial_trainer import TrainingEvaluator
+
+        score = TrainingEvaluator.evaluate("query", "test", result)
+        assert score["correctly_detected"] is True
+        assert score["immune_activated"] is True
+        assert score["score"] == 0.4  # only detected = 0.4
+
+
+class TestReports:
+    """Tests for HTML report generation (pure functions)."""
+
+    def test_benchmark_report_contains_title(self):
+        """Benchmark report HTML contains expected title."""
+        from core.reports import generate_benchmark_report
+
+        stats = {
+            "stats": {"total": 10, "immune_activated": 5, "antibodies_generated": 3,
+                       "anomalies_final_state": 2, "total_duration": 15.5,
+                       "escalations": 1},
+            "detection_rate_pct": 50.0,
+            "antibody_rate_pct": 30.0,
+        }
+        html = generate_benchmark_report(stats)
+        assert "Benchmark Report" in html
+        assert "10" in html  # total tests
+        assert "50.0%" in html  # detection rate
+
+    def test_benchmark_report_with_cases(self):
+        """Benchmark report includes case table when cases provided."""
+        from core.reports import generate_benchmark_report
+
+        stats = {"stats": {"total": 2, "immune_activated": 1, "antibodies_generated": 1,
+                           "anomalies_final_state": 0, "total_duration": 2.0,
+                           "escalations": 0},
+                 "detection_rate_pct": 50.0, "antibody_rate_pct": 50.0}
+        cases = [
+            {"index": 1, "query": "test query", "anomalies": 1, "immune_active": True, "duration": 1.0},
+        ]
+        html = generate_benchmark_report(stats, cases)
+        assert "Test Cases" in html
+        assert "test query" in html
+
+    def test_training_report_contains_stats(self):
+        """Training report shows epoch stats."""
+        from core.reports import generate_training_report
+
+        stats = {
+            "total_queries": 20,
+            "detected": 15,
+            "recovered": 10,
+            "avg_score": 0.65,
+            "detection_rate": 75.0,
+            "recovery_rate": 50.0,
+            "scores_by_epoch": [
+                {"epoch": 1, "queries": 5, "detected": 3, "recovered": 2, "avg_score": 0.6},
+            ],
+        }
+        html = generate_training_report(stats)
+        assert "Training Report" in html
+        assert "75.0%" in html
+        assert "Epoch Progress" in html
+
+    def test_training_report_with_results(self):
+        """Training report includes recent results table when provided."""
+        from core.reports import generate_training_report
+
+        stats = {"total_queries": 1, "detected": 1, "recovered": 1, "avg_score": 1.0,
+                 "detection_rate": 100.0, "recovery_rate": 100.0, "scores_by_epoch": []}
+        results = [
+            {"category": "infinite_loop", "query": "test",
+             "correctly_detected": True, "immune_activated": True, "score": 1.0},
+        ]
+        html = generate_training_report(stats, results)
+        assert "Recent Results" in html
+
+    def test_metrics_report_no_data(self):
+        """Metrics report shows 'no data' message when empty."""
+        from core.reports import generate_metrics_report
+
+        html = generate_metrics_report({"status": "no_data"})
+        assert "No metrics data available" in html
+
+    def test_metrics_report_with_data(self):
+        """Metrics report shows stats with valid data."""
+        from core.reports import generate_metrics_report
+
+        summary = {
+            "records": 100,
+            "success_rate": 85.0,
+            "anomaly_rate": 10.0,
+            "immune_activation_rate": 8.0,
+            "latency": {"avg_seconds": 2.5, "p95_seconds": 5.0},
+            "anomaly_breakdown": {"worker": 8, "monitor": 2},
+        }
+        html = generate_metrics_report(summary)
+        assert "Metrics Report" in html
+        assert "85.0%" in html
+        assert "worker" in html
+        assert "2.50s" in html
+
+    def test_save_report_creates_file(self, tmp_path):
+        """save_report writes HTML to disk."""
+        import core.reports as r_mod
+        original_dir = r_mod.REPORTS_DIR
+        r_mod.REPORTS_DIR = str(tmp_path)
+        try:
+            path = r_mod.save_report("<html></html>", filename="test.html")
+            assert path == str(tmp_path / "test.html")
+            assert (tmp_path / "test.html").exists()
+            content = (tmp_path / "test.html").read_text(encoding="utf-8")
+            assert content == "<html></html>"
+        finally:
+            r_mod.REPORTS_DIR = original_dir
+
+    def test_save_report_generates_filename(self, tmp_path):
+        """save_report generates a timestamped filename when none given."""
+        import core.reports as r_mod
+        original_dir = r_mod.REPORTS_DIR
+        r_mod.REPORTS_DIR = str(tmp_path)
+        try:
+            path = r_mod.save_report("<html></html>")
+            assert path.startswith(str(tmp_path))
+            assert path.endswith(".html")
+        finally:
+            r_mod.REPORTS_DIR = original_dir

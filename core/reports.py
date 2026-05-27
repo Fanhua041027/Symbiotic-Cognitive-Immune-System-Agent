@@ -85,6 +85,7 @@ def generate_benchmark_report(stats: dict, cases: list[dict] | None = None) -> s
     duration = s.get("total_duration", 0)
     detection_rate = stats.get("detection_rate_pct", 0)
     antibody_rate = stats.get("antibody_rate_pct", 0)
+    escalations = s.get("escalations", 0)
 
     stat_row = _stat_box("Total Tests", str(total))
     stat_row += _stat_box("Detection Rate", f"{detection_rate}%")

@@ -16,6 +16,7 @@ Symbiotic Cognitive Immune System Agent
 """
 
 import argparse
+import atexit
 import json
 import os
 import sys
@@ -29,6 +30,15 @@ from core.logger import setup_logger
 load_dotenv()
 
 logger = setup_logger("cli")
+
+# 模块级线程池 — 复用避免每次创建/销毁，Windows 超时场景不泄露线程
+_WINDOWS_EXECUTOR = None
+def _get_executor():
+    global _WINDOWS_EXECUTOR
+    if _WINDOWS_EXECUTOR is None:
+        import concurrent.futures
+        _WINDOWS_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="immune_agent")
+    return _WINDOWS_EXECUTOR
 
 # 启动时校验配置（仅在直接执行时退出，import 时只警告）
 config_warnings = validate_all()
@@ -112,16 +122,14 @@ def run_single_query(
             result = app.invoke(initial_state, config=config)  # type: ignore[attr-defined]
         else:
             # Windows: use ThreadPoolExecutor for timeout.
-            # NOTE: avoid `with` statement — pool.shutdown(wait=True) blocks
-            # until the task completes, defeating the timeout.
-            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            # 使用模块级持久化 executor，避免每次创建/销毁线程池
+            pool = _get_executor()
+            future = pool.submit(app.invoke, initial_state, config)  # type: ignore[attr-defined]
             try:
-                future = pool.submit(app.invoke, initial_state, config)  # type: ignore[attr-defined]
                 result = future.result(timeout=timeout)
             except concurrent.futures.TimeoutError:
+                future.cancel()  # 取消任务（不杀线程，但允许复用池中其他 worker）
                 raise TimeoutError_(f"Query timed out after {timeout}s")
-            finally:
-                pool.shutdown(wait=False)  # don't block — abandon thread
 
         duration = _time.time() - start_time
         result["user_query"] = query

@@ -235,9 +235,9 @@ def _auto_git_backup(error_pattern: str) -> None:
         if not status:
             return
 
-        # Stage all and commit with immune response message
+        # Stage tracked changes only (avoid committing .env, credentials, etc.)
         subprocess.run(
-            ["git", "add", "-A"],
+            ["git", "add", "-u"],
             capture_output=True, timeout=10,
         )
         timestamp = datetime.now(timezone.utc).strftime("%H%M%S")
@@ -302,6 +302,15 @@ def main_worker_node(state: ImmunologyState) -> dict:
     # 查询免疫记忆库，获取历史抗体
     memory_hit = memory_db.search_antibody(query)
     injected_context = ""
+
+    # 注入风险分类标记 (风险预判结果)
+    risk_flags = state.get("risk_flags", [])
+    if risk_flags:
+        injected_context += (
+            "\n[Risk Classification]: This query has been flagged for the following risks:\n"
+            + "\n".join(f"  - {flag}" for flag in risk_flags)
+            + "\nTake these risks into account when generating your output.\n"
+        )
 
     if memory_hit:
         logger.info(

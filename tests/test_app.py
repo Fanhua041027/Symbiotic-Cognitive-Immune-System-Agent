@@ -6,11 +6,6 @@ the rendering logic is correct — if the function signatures change, update
 both app.py and these tests.
 """
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from core.trace_render import TRACE_STYLES, render_trace
 
 

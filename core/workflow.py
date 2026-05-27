@@ -15,6 +15,7 @@ from core.nodes import (
     generate_antibody_node,
     main_worker_node,
     monitor_node,
+    risk_classifier_node,
     validate_antibody_node,
 )
 from core.state import ImmunologyState
@@ -30,6 +31,7 @@ logger = setup_logger("workflow")
 # 执行轨迹装饰器 - 自动为每个节点注入 trace 信息
 # ---------------------------------------------------------------------------
 _TRACE_LABELS = {
+    "risk_classifier": "Risk Classifier",
     "worker": "Worker",
     "consistency_check": "Consistency Check",
     "monitor": "Monitor T-Cell",
@@ -141,6 +143,9 @@ def build_workflow() -> StateGraph:
     workflow = StateGraph(ImmunologyState)
 
     # 注册节点 (用 trace wrapper 包装)
+    workflow.add_node(
+        "risk_classifier", _with_trace("risk_classifier", risk_classifier_node),
+    )
     workflow.add_node("worker", _with_trace("worker", main_worker_node))
     workflow.add_node(
         "consistency_check", _with_trace("consistency_check", consistency_check_node),
@@ -154,8 +159,9 @@ def build_workflow() -> StateGraph:
     )
     workflow.add_node("finalize", _with_trace("finalize", finalize_node))
 
-    # 入口 → 主智能体 → 一致性检查 → 监察员
-    workflow.add_edge(START, "worker")
+    # 入口 → 风险分类 → 主智能体 → 一致性检查 → 监察员
+    workflow.add_edge(START, "risk_classifier")
+    workflow.add_edge("risk_classifier", "worker")
     workflow.add_edge("worker", "consistency_check")
     workflow.add_edge("consistency_check", "monitor")
 

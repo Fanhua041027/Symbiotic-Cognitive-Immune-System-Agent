@@ -36,5 +36,8 @@ class ImmunologyState(TypedDict):
     # 请求追踪 ID (每个查询唯一，跨节点日志关联)
     request_id: str | None
 
+    # 风险分类标记 (Worker 执行前的风险预判)
+    risk_flags: list[str]
+
     # 工作流执行轨迹 (用于可视化)
     workflow_trace: list[str]

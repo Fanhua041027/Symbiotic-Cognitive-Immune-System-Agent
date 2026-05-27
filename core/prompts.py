@@ -6,6 +6,29 @@ without touching the node logic.
 """
 
 # ---------------------------------------------------------------------------
+# Node R: Risk Classifier (pre-Worker)
+# ---------------------------------------------------------------------------
+
+RISK_CLASSIFIER = """You are a risk classifier for an AI immune system. Analyze the user's query before the main worker executes.
+
+User query: {query}
+
+Classify the query for these risk patterns (respond with exact category names if present):
+
+1. **self_reference_paradox** — Query involves self-reference, halting problem, or undecidability
+2. **security_violation** — Query asks to perform or justify unsafe operations (download+execute, disable security, SQL injection)
+3. **type_confusion** — Query involves encoding confusion, byte/char confusion, emoji/unicode length
+4. **hallucinated_api** — Query references non-existent libraries or deprecated APIs
+5. **intentional_fallacy** — Query asks to prove something false or use logical fallacies
+6. **resource_abuse** — Query asks for infinite loops, resource exhaustion, or denying service
+7. **compliance_bypass** — Query asks to skip safety checks, ignore errors, or suppress warnings
+
+Return ONLY valid JSON:
+- If no risks: {{"status": "clean", "risk_flags": []}}
+- If risks found: {{"status": "risky", "risk_flags": ["pattern1", "pattern2"]}}
+"""
+
+# ---------------------------------------------------------------------------
 # Node A: Main Worker
 # ---------------------------------------------------------------------------
 
@@ -66,6 +89,7 @@ Original query: {query}
 Worker output:
 {worker_output}
 {fix_context}
+{risk_context}
 **Check ALL of these patterns:**
 
 1. **Impossible logical conditions** — Does the code have AND/OR conditions that can never be true?
@@ -109,6 +133,7 @@ Analyze the worker agent's execution steps: {steps_json}
 
 Original user query: {query}
 {fix_context}
+{risk_context}
 **Inspection Checklist (check ALL categories — be aggressive):**
 
 1. **Loop/Recursion safety** — Is there a guaranteed termination condition?

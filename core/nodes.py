@@ -14,6 +14,7 @@ from core.prompts import (
     ANTIBODY_GENERATOR,
     CONSISTENCY_CHECK,
     MONITOR_TCELL,
+    RISK_CLASSIFIER,
     WORKER_NO_FIX,
     WORKER_WITH_FIX,
 )
@@ -235,6 +236,42 @@ def _auto_git_backup(error_pattern: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 节点 R: 风险分类器 (Worker 前置)
+# ---------------------------------------------------------------------------
+def risk_classifier_node(state: ImmunologyState) -> dict:
+    """
+    风险分类节点：在 Worker 执行前分析用户查询，
+    标记高风险模式以便后续节点进行针对性检查。
+    """
+    query = state["user_query"]
+
+    prompt = RISK_CLASSIFIER.format(query=query)
+
+    try:
+        content = _invoke_llm(
+            get_monitor_llm(), prompt, "risk_classifier", _get_fallback_llm(),
+        )
+        content = content.strip()
+    except Exception as e:
+        logger.warning("Risk classifier LLM call failed: %s", e)
+        return {"risk_flags": []}
+
+    try:
+        cleaned = content.replace("```json", "").replace("```", "").strip()
+        result = json.loads(cleaned)
+        risk_flags = result.get("risk_flags", [])
+        logger.info(
+            "Risk classifier: %s (flags=%s)", result.get("status"), risk_flags,
+        )
+        return {"risk_flags": risk_flags}
+    except json.JSONDecodeError:
+        logger.warning(
+            "Risk classifier: failed to parse LLM output: %s", content[:100],
+        )
+        return {"risk_flags": []}
+
+
+# ---------------------------------------------------------------------------
 # 节点 A: 主智能体 (Worker)
 # ---------------------------------------------------------------------------
 def main_worker_node(state: ImmunologyState) -> dict:
@@ -361,8 +398,18 @@ def consistency_check_node(state: ImmunologyState) -> dict:
             "Only flag a NEW issue that is completely different from what was already addressed.\n"
         )
 
+    risk_flags = state.get("risk_flags", [])
+    risk_context = ""
+    if risk_flags:
+        risk_context = (
+            "\n**Risk flags from pre-execution classifier:** "
+            f"{', '.join(risk_flags)}\n"
+            "Pay special attention to these patterns in your analysis.\n"
+        )
+
     prompt = CONSISTENCY_CHECK.format(
-        query=query, worker_output=worker_output[:2000], fix_context=fix_context,
+        query=query, worker_output=worker_output[:2000],
+        fix_context=fix_context, risk_context=risk_context,
     )
 
     try:
@@ -416,10 +463,20 @@ def monitor_node(state: ImmunologyState) -> dict:
             "If the fix is properly applied, return healthy.\n"
         )
 
+    risk_flags = state.get("risk_flags", [])
+    risk_context = ""
+    if risk_flags:
+        risk_context = (
+            "\n**Risk flags from pre-execution classifier:** "
+            f"{', '.join(risk_flags)}\n"
+            "Pay special attention to these patterns in your analysis.\n"
+        )
+
     prompt = MONITOR_TCELL.format(
         steps_json=json.dumps(steps, ensure_ascii=False),
         query=query,
         fix_context=fix_context,
+        risk_context=risk_context,
     )
 
     try:

@@ -89,7 +89,6 @@ Original query: {query}
 Worker output:
 {worker_output}
 {fix_context}
-{risk_context}
 **Check ALL of these patterns:**
 
 1. **Impossible logical conditions** — Does the code have AND/OR conditions that can never be true?
@@ -133,7 +132,6 @@ Analyze the worker agent's execution steps: {steps_json}
 
 Original user query: {query}
 {fix_context}
-{risk_context}
 **Inspection Checklist (check ALL categories — be aggressive):**
 
 1. **Loop/Recursion safety** — Is there a guaranteed termination condition?

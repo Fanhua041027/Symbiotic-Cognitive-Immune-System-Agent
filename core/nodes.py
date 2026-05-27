@@ -398,18 +398,8 @@ def consistency_check_node(state: ImmunologyState) -> dict:
             "Only flag a NEW issue that is completely different from what was already addressed.\n"
         )
 
-    risk_flags = state.get("risk_flags", [])
-    risk_context = ""
-    if risk_flags:
-        risk_context = (
-            "\n**Risk flags from pre-execution classifier:** "
-            f"{', '.join(risk_flags)}\n"
-            "Pay special attention to these patterns in your analysis.\n"
-        )
-
     prompt = CONSISTENCY_CHECK.format(
-        query=query, worker_output=worker_output[:2000],
-        fix_context=fix_context, risk_context=risk_context,
+        query=query, worker_output=worker_output[:2000], fix_context=fix_context,
     )
 
     try:
@@ -463,20 +453,10 @@ def monitor_node(state: ImmunologyState) -> dict:
             "If the fix is properly applied, return healthy.\n"
         )
 
-    risk_flags = state.get("risk_flags", [])
-    risk_context = ""
-    if risk_flags:
-        risk_context = (
-            "\n**Risk flags from pre-execution classifier:** "
-            f"{', '.join(risk_flags)}\n"
-            "Pay special attention to these patterns in your analysis.\n"
-        )
-
     prompt = MONITOR_TCELL.format(
         steps_json=json.dumps(steps, ensure_ascii=False),
         query=query,
         fix_context=fix_context,
-        risk_context=risk_context,
     )
 
     try:

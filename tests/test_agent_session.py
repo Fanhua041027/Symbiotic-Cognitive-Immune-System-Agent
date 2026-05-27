@@ -1,6 +1,7 @@
 """Tests for the agent session manager."""
 
 import json
+import os
 import time
 
 

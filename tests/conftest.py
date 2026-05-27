@@ -27,10 +27,13 @@ def immune_state() -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
-def _clear_llm_cache():
-    """Clear LLM cache between tests to prevent test interaction pollution."""
+def _clear_caches():
+    """Clear LLM and config caches between tests to prevent test interaction pollution."""
     import core.nodes as nodes
     nodes._llm_cache.clear()
+    import core.config as cfg_mod
+    cfg_mod._validated = False
+    cfg_mod._values.clear()
 
 
 @pytest.fixture

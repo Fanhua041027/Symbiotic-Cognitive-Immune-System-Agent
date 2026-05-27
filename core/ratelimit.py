@@ -78,11 +78,11 @@ class TokenBucketRateLimiter:
 
 
 # Global instance — configured via RATE_LIMIT_REQUESTS and RATE_LIMIT_WINDOW env vars
-_limiter: TokenBucketRateLimiter | None = None
+_limiter: RateLimiter | None = None
 _limiter_lock = threading.Lock()
 
 
-def get_limiter() -> TokenBucketRateLimiter | None:
+def get_limiter() -> RateLimiter | None:
     """Get or create the rate limiter. Returns None if rate limiting is disabled."""
     global _limiter
     if _limiter is not None:

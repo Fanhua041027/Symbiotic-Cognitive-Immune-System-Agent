@@ -3,7 +3,6 @@
 import json
 import threading
 
-from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
 from core.circuit_breaker import breaker
@@ -22,8 +21,6 @@ from core.sandbox import validate_antibody
 from core.state import ImmunologyState
 
 logger = setup_logger("nodes")
-
-load_dotenv()
 
 # ---------------------------------------------------------------------------
 # LLM Provider 抽象层
@@ -209,12 +206,13 @@ def _invoke_llm(
 # ---------------------------------------------------------------------------
 # Git 自动备份 (免疫响应时创建安全快照)
 # ---------------------------------------------------------------------------
-_AUTO_BACKUP_ENABLED = True
+def _auto_backup_enabled() -> bool:
+    return bool(cfg("AUTO_BACKUP_ENABLED", True))
 
 
 def _auto_git_backup(error_pattern: str) -> None:
     """Create an automatic git checkpoint when an immune response fires."""
-    if not _AUTO_BACKUP_ENABLED:
+    if not _auto_backup_enabled():
         return
     import subprocess
     from datetime import datetime, timezone

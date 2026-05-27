@@ -5,7 +5,6 @@ for escalation events and benchmark results.
 """
 
 import json
-import os
 from typing import Any
 
 import requests
@@ -22,7 +21,7 @@ class SlackNotifier:
     """Send messages to Slack via Incoming Webhook."""
 
     def __init__(self, webhook_url: str | None = None):
-        self._webhook_url = webhook_url or os.getenv("SLACK_WEBHOOK_URL")
+        self._webhook_url = webhook_url or cfg("SLACK_WEBHOOK_URL", None)
 
     def _available(self) -> bool:
         return bool(self._webhook_url)
@@ -102,7 +101,7 @@ class WebhookNotifier:
     """Send JSON payloads to any HTTP endpoint."""
 
     def __init__(self, url: str | None = None):
-        self._url = url or os.getenv("NOTIFICATION_WEBHOOK_URL")
+        self._url = url or cfg("NOTIFICATION_WEBHOOK_URL", None)
 
     def _available(self) -> bool:
         return bool(self._url)

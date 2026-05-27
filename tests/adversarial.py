@@ -146,8 +146,6 @@ def run_benchmark() -> dict[str, Any]:
     """Run all adversarial test cases and collect statistics."""
     # Lazy imports so ADVERSARIAL_QUERIES can be imported without side effects
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from dotenv import load_dotenv
-    load_dotenv()
     from core.logger import setup_logger
     from immune_agent import run_single_query
 

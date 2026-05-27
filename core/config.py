@@ -33,8 +33,6 @@ _CONFIG_DEFS: list[tuple[str, Any, type, bool, str]] = [
      "MiMo API key (required if LLM_PROVIDER=mimo)"),
     ("MIMO_OPENAI_BASE", None, str, False,
      "MiMo OpenAI-compatible endpoint"),
-    ("MIMO_ANTHROPIC_BASE", None, str, False,
-     "MiMo Anthropic-compatible endpoint"),
     ("MIMO_MODEL", "MiMo-v2.5-pro", str, False, "MiMo model name"),
     ("MAIN_LLM_MODEL", "gpt-4o", str, False, "Worker LLM model"),
     ("MONITOR_LLM_MODEL", "gpt-4o-mini", str, False, "Monitor LLM model"),
@@ -45,6 +43,11 @@ _CONFIG_DEFS: list[tuple[str, Any, type, bool, str]] = [
     ("LOG_LEVEL", "INFO", str, False, "Log level: DEBUG/INFO/WARNING/ERROR"),
     ("ESCALATION_THRESHOLD", 3, int, False, "Escalation failure threshold"),
     ("SESSION_MAX_TURNS", 500, int, False, "Max session turns before rotation"),
+    ("AUTO_BACKUP_ENABLED", True, bool, False,
+     "Enable automatic git backup on immune response"),
+    ("SLACK_WEBHOOK_URL", None, str, False, "Slack webhook URL for notifications"),
+    ("NOTIFICATION_WEBHOOK_URL", None, str, False,
+     "Generic webhook URL for notifications"),
 ]
 
 # Cache
@@ -156,10 +159,14 @@ def save_config(updates: dict[str, str]) -> list[str]:
     """Save config updates to .env file. Returns warnings list."""
     warnings: list[str] = []
 
-    # Validate editable fields
-    for key in updates:
+    # Filter out non-editable fields
+    for key in list(updates):
         if key not in EDITABLE_FIELDS:
             warnings.append(f"SKIPPED: {key} is not editable from UI")
+            del updates[key]
+
+    if not updates:
+        return warnings
 
     try:
         # Read existing content

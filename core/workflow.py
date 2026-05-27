@@ -2,10 +2,7 @@
 
 from typing import Literal
 
-from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
-
-load_dotenv()
 
 from core.config import get as cfg
 from core.escalation import escalation

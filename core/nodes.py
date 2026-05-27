@@ -566,10 +566,25 @@ def generate_antibody_node(state: ImmunologyState) -> dict:
 # ---------------------------------------------------------------------------
 # 节点 D: 沙箱验证器 (Sandbox Validator)
 # ---------------------------------------------------------------------------
+def _record_antibody_response(error_pattern: str, code: str, context: str = "") -> bool:
+    """Store validated antibody and create git checkpoint. Returns True if stored."""
+    stored = memory_db.store_antibody(
+        error_pattern=error_pattern,
+        antibody_code=code,
+        context=context,
+    )
+    logger.info(
+        "Antibody validated and stored (mode=%s, dedup_skipped=%s)",
+        cfg("SANDBOX_MODE", "simulated"), not stored,
+    )
+    _auto_git_backup(error_pattern)
+    return stored
+
+
 def validate_antibody_node(state: ImmunologyState) -> dict:
     """
     沙箱验证：使用可配置的多级沙箱检查抗体有效性。
-    支持 simulated / ast / docker 三种模式（通过 SANDBOX_MODE 环境变量设置）。
+    验证通过后自动存储抗体并创建 git 备份。
     """
     antibodies = state.get("antibodies", [])
     if not antibodies:
@@ -585,27 +600,15 @@ def validate_antibody_node(state: ImmunologyState) -> dict:
 
     if is_valid:
         error_pattern = "cognitive_loop"
-        # 尝试从历史异常中提取更精确的模式
         anomalies = state.get("anomalies", [])
         if anomalies:
             error_pattern = anomalies[-1].get("reason", error_pattern)[:100]
 
-        stored = memory_db.store_antibody(
-            error_pattern=error_pattern,
-            antibody_code=code,
-            context=state.get("user_query", ""),
-        )
-        logger.info(
-            "Antibody validated and stored (mode=%s, dedup_skipped=%s)",
-            cfg("SANDBOX_MODE", "simulated"),
-            not stored,
-        )
-        # Automatic git checkpoint on immune response
-        _auto_git_backup(error_pattern)
+        _record_antibody_response(error_pattern, code, state.get("user_query", ""))
         return {
             "is_immune_active": True,
             "validation_status": "passed",
-            "anomalies": [],  # Clear anomalies after successful immune response
+            "anomalies": [],
         }
 
     logger.warning("Antibody validation failed: %s", reason or "keyword check failed")

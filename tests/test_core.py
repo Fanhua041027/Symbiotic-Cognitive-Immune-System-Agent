@@ -816,7 +816,8 @@ class TestWorkflowIntegration:
 
         edge_pairs = {(e[0], e[1]) for e in edges}
         required = [
-            ("__start__", "worker"),
+            ("__start__", "risk_classifier"),
+            ("risk_classifier", "worker"),
             ("worker", "consistency_check"),
             ("consistency_check", "monitor"),
             ("generate_antibody", "validate_antibody"),

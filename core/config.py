@@ -21,7 +21,7 @@ logger = setup_logger("config")
 
 # Validation rules: (key, default, type, required, description)
 _CONFIG_DEFS: list[tuple[str, Any, type, bool, str]] = [
-    ("LLM_PROVIDER", "openai", str, False, "LLM provider: openai/deepseek/custom"),
+    ("LLM_PROVIDER", "openai", str, False, "LLM provider: openai/deepseek/custom/mimo"),
     ("OPENAI_API_KEY", None, str, False, "OpenAI API key"),
     ("DEEPSEEK_API_KEY", None, str, False,
      "DeepSeek API key (required if LLM_PROVIDER=deepseek)"),
@@ -29,6 +29,13 @@ _CONFIG_DEFS: list[tuple[str, Any, type, bool, str]] = [
      "Custom API key (required if LLM_PROVIDER=custom)"),
     ("CUSTOM_API_BASE", None, str, False,
      "Custom API base URL (required if LLM_PROVIDER=custom)"),
+    ("MIMO_API_KEY", None, str, False,
+     "MiMo API key (required if LLM_PROVIDER=mimo)"),
+    ("MIMO_OPENAI_BASE", None, str, False,
+     "MiMo OpenAI-compatible endpoint"),
+    ("MIMO_ANTHROPIC_BASE", None, str, False,
+     "MiMo Anthropic-compatible endpoint"),
+    ("MIMO_MODEL", "MiMo-v2.5-pro", str, False, "MiMo model name"),
     ("MAIN_LLM_MODEL", "gpt-4o", str, False, "Worker LLM model"),
     ("MONITOR_LLM_MODEL", "gpt-4o-mini", str, False, "Monitor LLM model"),
     ("ANTIBODY_LLM_MODEL", "gpt-4o", str, False, "Antibody generator LLM model"),
@@ -46,10 +53,10 @@ _validated = False
 
 VALID_SANDBOX_MODES = {"simulated", "ast", "docker", "e2b"}
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
-VALID_PROVIDERS = {"openai", "deepseek", "custom"}
+VALID_PROVIDERS = {"openai", "deepseek", "custom", "mimo"}
 
 # API key fields (masked in display)
-_API_KEY_FIELDS = {"OPENAI_API_KEY", "DEEPSEEK_API_KEY", "CUSTOM_API_KEY"}
+_API_KEY_FIELDS = {"OPENAI_API_KEY", "DEEPSEEK_API_KEY", "CUSTOM_API_KEY", "MIMO_API_KEY"}
 
 
 def validate_all() -> list[str]:
@@ -118,6 +125,10 @@ def validate_all() -> list[str]:
     elif provider == "custom" and not _values.get("CUSTOM_API_BASE"):
         warnings.append(
             "MISSING: CUSTOM_API_BASE -required when LLM_PROVIDER=custom",
+        )
+    elif provider == "mimo" and not _values.get("MIMO_API_KEY"):
+        warnings.append(
+            "MISSING: MIMO_API_KEY -required when LLM_PROVIDER=mimo",
         )
 
     global _validated

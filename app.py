@@ -194,14 +194,67 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Sidebar
+# 启动模型选择 (每次刷新页面时弹出)
 # ---------------------------------------------------------------------------
+if "model_choice_made" not in st.session_state:
+    st.markdown("""
+    <style>
+        .choice-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6); z-index: 9999;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .choice-card {
+            background: white; border-radius: 20px; padding: 2.5rem;
+            max-width: 480px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        .choice-card h1 { font-size: 1.5rem; margin-bottom: 0.3rem; }
+        .choice-card p { color: #536471; font-size: 0.9rem; margin-bottom: 1.5rem; }
+        .choice-btn {
+            display: block; width: 100%; padding: 1rem;
+            border-radius: 12px; border: 2px solid #e8eaed;
+            background: white; cursor: pointer; font-size: 1rem; font-weight: 600;
+            margin-bottom: 0.6rem; transition: all 0.15s ease;
+        }
+        .choice-btn:hover { border-color: #1a73e8; background: #f0f6ff; }
+        .choice-btn .sub { font-weight: 400; font-size: 0.8rem; color: #8e98a3; }
+    </style>
+    <div class="choice-overlay">
+        <div class="choice-card">
+            <h1>🛡️ 选择模型</h1>
+            <p>请选择本次会话使用的 LLM 提供方</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🧠 **DeepSeek**  \n_deepseek-chat_", use_container_width=True):
+            from core.config import save_config as _sc
+            _sc({"LLM_PROVIDER": "deepseek",
+                 "MAIN_LLM_MODEL": "deepseek-chat",
+                 "MONITOR_LLM_MODEL": "deepseek-chat",
+                 "ANTIBODY_LLM_MODEL": "deepseek-chat"})
+            st.session_state.model_choice_made = True
+            st.rerun()
+    with c2:
+        if st.button("🌩️ **MiMo-v2.5-pro**  \n_小米 MiMo_", use_container_width=True):
+            from core.config import save_config as _sc
+            _sc({"LLM_PROVIDER": "mimo",
+                 "MIMO_OPENAI_BASE": "https://token-plan-cn.xiaomimimo.com/v1",
+                 "MIMO_ANTHROPIC_BASE": "https://token-plan-cn.xiaomimimo.com/anthropic",
+                 "MIMO_MODEL": "MiMo-v2.5-pro"})
+            st.session_state.model_choice_made = True
+            st.rerun()
+
+    st.stop()
 with st.sidebar:
     st.markdown('<div style="text-align:center;padding:0.5rem 0 1rem 0"><span style="font-size:2rem">🛡️</span><h2 style="color:white;margin:0.3rem 0 0 0">Immune Agent</h2><p style="color:rgba(255,255,255,0.4);font-size:0.75rem;margin:0">Multi-Agent Defense Framework</p></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
     st.markdown("<label>Provider</label>", unsafe_allow_html=True)
-    providers = ["openai", "deepseek", "custom"]
+    providers = ["openai", "deepseek", "custom", "mimo"]
     current = cfg("LLM_PROVIDER", "openai")
     provider = st.selectbox("provider", options=providers, index=providers.index(current) if current in providers else 0, label_visibility="collapsed")
 

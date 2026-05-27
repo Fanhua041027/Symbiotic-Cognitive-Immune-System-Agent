@@ -32,6 +32,7 @@ PROVIDER_ENDPOINTS = {
     "openai": "https://api.openai.com/v1",
     "deepseek": "https://api.deepseek.com",
     "custom": None,  # 从 CUSTOM_API_BASE 读取
+    "mimo": None,    # 从 MIMO_OPENAI_BASE 读取
 }
 
 
@@ -54,6 +55,11 @@ def _resolve_llm_params() -> dict:
             "api_key": cfg("CUSTOM_API_KEY"),
             "base_url": cfg("CUSTOM_API_BASE"),
         }
+    elif provider == "mimo":
+        return {
+            "api_key": cfg("MIMO_API_KEY"),
+            "base_url": cfg("MIMO_OPENAI_BASE"),
+        }
     else:
         logger.warning("Unknown LLM_PROVIDER=%s, falling back to openai", provider)
         return {
@@ -69,7 +75,11 @@ def _create_llm(model_key: str, temperature: float) -> ChatOpenAI:
     if not api_key:
         logger.warning("No API key configured for provider=%s, LLM calls will fail",
                         cfg("LLM_PROVIDER", "openai"))
-    model = cfg(model_key)
+    # MiMo uses a single model name regardless of role
+    if cfg("LLM_PROVIDER", "openai") == "mimo":
+        model = cfg("MIMO_MODEL", "MiMo-v2.5-pro")
+    else:
+        model = cfg(model_key)
     logger.info(
         "LLM init: provider=%s model=%s endpoint=%s",
         cfg("LLM_PROVIDER", "openai"), model,
@@ -145,6 +155,14 @@ def _get_fallback_llm() -> ChatOpenAI | None:
                 base_url=PROVIDER_ENDPOINTS["deepseek"],
             )
             logger.info("Fallback LLM: deepseek/deepseek-chat (for openai provider)")
+        elif provider == "mimo" and cfg("DEEPSEEK_API_KEY"):
+            _fallback_llm = ChatOpenAI(
+                model="deepseek-chat",
+                temperature=cfg("LLM_TEMPERATURE", 0.7),
+                api_key=cfg("DEEPSEEK_API_KEY"),
+                base_url=PROVIDER_ENDPOINTS["deepseek"],
+            )
+            logger.info("Fallback LLM: deepseek/deepseek-chat (for mimo provider)")
         return _fallback_llm
 
 

@@ -2362,3 +2362,105 @@ class TestDockerCompose:
             cfg = yaml.safe_load(f)
         deps = cfg["services"]["immune-agent-web"].get("depends_on", {})
         assert "immune-agent-api" in deps, "Web should depend on API"
+
+
+class TestRateLimiter:
+    """Tests for TokenBucketRateLimiter."""
+
+    def test_basic_check_passes(self):
+        """A single request within the limit should pass."""
+        from core.ratelimit import TokenBucketRateLimiter
+        limiter = TokenBucketRateLimiter(max_requests=5, window_seconds=60)
+        remaining = limiter.check("test-key")
+        assert remaining == 4  # 5 - 1
+
+    def test_exceed_limit_raises(self):
+        """Exceeding max_requests should raise RateLimitExceeded."""
+        from core.ratelimit import RateLimitExceeded, TokenBucketRateLimiter
+        limiter = TokenBucketRateLimiter(max_requests=2, window_seconds=60)
+        limiter.check("test-key")
+        limiter.check("test-key")
+        with pytest.raises(RateLimitExceeded):
+            limiter.check("test-key")
+
+    def test_different_keys_have_separate_buckets(self):
+        """Each key should have its own independent counter."""
+        from core.ratelimit import TokenBucketRateLimiter
+        limiter = TokenBucketRateLimiter(max_requests=2, window_seconds=60)
+        limiter.check("key-a")
+        limiter.check("key-a")
+        remaining = limiter.check("key-b")
+        assert remaining == 1  # key-b is fresh: 2 - 1
+
+    def test_remaining_returns_correct_count(self):
+        """remaining() should reflect available requests without recording."""
+        from core.ratelimit import TokenBucketRateLimiter
+        limiter = TokenBucketRateLimiter(max_requests=5, window_seconds=60)
+        assert limiter.remaining("test-key") == 5  # no requests yet
+        limiter.check("test-key")
+        assert limiter.remaining("test-key") == 4
+
+    def test_reset_single_key(self):
+        """reset(key) should clear the counter for that key only."""
+        from core.ratelimit import TokenBucketRateLimiter
+        limiter = TokenBucketRateLimiter(max_requests=2, window_seconds=60)
+        limiter.check("key-a")
+        limiter.check("key-b")
+        limiter.reset("key-a")
+        assert limiter.remaining("key-a") == 2  # reset
+        assert limiter.remaining("key-b") == 1  # untouched
+
+    def test_reset_all_keys(self):
+        """reset() without args should clear all keys."""
+        from core.ratelimit import TokenBucketRateLimiter
+        limiter = TokenBucketRateLimiter(max_requests=2, window_seconds=60)
+        limiter.check("key-a")
+        limiter.check("key-b")
+        limiter.reset()
+        assert limiter.remaining("key-a") == 2
+        assert limiter.remaining("key-b") == 2
+
+    def test_sliding_window_expires_old_entries(self, monkeypatch):
+        """Entries older than window_seconds should be pruned."""
+        import time as time_module
+        from core.ratelimit import TokenBucketRateLimiter
+
+        fake_time = [1000.0]
+
+        def _time():
+            return fake_time[0]
+
+        monkeypatch.setattr(time_module, "time", _time)
+        limiter = TokenBucketRateLimiter(max_requests=2, window_seconds=10)
+        limiter.check("test-key")  # t=1000
+        limiter.check("test-key")  # t=1000, now full
+
+        # Advance time past the window
+        fake_time[0] = 1011.0
+        remaining = limiter.check("test-key")  # should be pruned and allowed
+        assert remaining == 1  # 2 - 1 (both old pruned, new request counted)
+
+    def test_high_volume_burst(self):
+        """Should handle rapid requests within limits."""
+        from core.ratelimit import TokenBucketRateLimiter
+        limiter = TokenBucketRateLimiter(max_requests=1000, window_seconds=60)
+        for _ in range(1000):
+            limiter.check("burst-key")
+        assert limiter.remaining("burst-key") == 0
+
+    def test_thread_safety(self):
+        """Concurrent requests on the same key should not corrupt state."""
+        import concurrent.futures
+        from core.ratelimit import TokenBucketRateLimiter
+
+        limiter = TokenBucketRateLimiter(max_requests=200, window_seconds=60)
+        n = 100
+
+        def worker(_):
+            return limiter.check("shared-key")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [pool.submit(worker, i) for i in range(n)]
+            concurrent.futures.wait(futures)
+
+        assert limiter.remaining("shared-key") == 200 - n

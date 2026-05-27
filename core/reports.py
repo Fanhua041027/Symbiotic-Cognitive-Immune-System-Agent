@@ -4,10 +4,8 @@ Produces self-contained HTML reports with embedded CSS for
 benchmark results, training progress, and system metrics.
 """
 
-import json
 import os
 from datetime import datetime, timezone
-from typing import Any
 
 from core.logger import setup_logger
 

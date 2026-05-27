@@ -323,3 +323,53 @@ class TestAgentSessionGlobals:
         reset_session()
         s2 = get_session()
         assert s1 is not s2
+
+
+class TestSessionRotation:
+    """Tests for AgentSession auto-rotation."""
+
+    def test_rotation_below_max_returns_none(self):
+        """Rotation not triggered when turns < max_turns."""
+        from core.agent_session import AgentSession
+        session = AgentSession(max_turns=5)
+        session.record_turn({"final_output": "ok"})
+        assert session._check_max_turns_rotation() is None
+
+    def test_rotation_at_max_creates_new_session(self):
+        """Rotation triggered when turns >= max_turns."""
+        from core.agent_session import AgentSession
+        session = AgentSession(max_turns=2)
+        session.record_turn({"final_output": "ok"})
+        session.record_turn({"final_output": "ok"})
+        new = session._check_max_turns_rotation()
+        assert new is not None
+        assert new.session_id != session.session_id
+
+    def test_rotation_saves_before_creating_new(self, tmp_path):
+        """Old session is saved to disk before rotation."""
+        from core.agent_session import AgentSession
+        import core.agent_session as as_mod
+        original_dir = as_mod.SESSIONS_DIR
+        as_mod.SESSIONS_DIR = str(tmp_path)
+        try:
+            session = AgentSession(max_turns=1)
+            old_id = session.session_id
+            session.record_turn({"final_output": "ok"})
+            new = session._check_max_turns_rotation()
+            assert new is not None
+            # The old session should be saved as a JSON file
+            saved = list(tmp_path.iterdir())
+            assert any(old_id in f.name for f in saved)
+        finally:
+            as_mod.SESSIONS_DIR = original_dir
+
+    def test_rotation_exact_boundary(self):
+        """At exactly max_turns, the NEXT turn triggers rotation."""
+        from core.agent_session import AgentSession
+        session = AgentSession(max_turns=2)
+        session.record_turn({"final_output": "ok"})
+        assert session._check_max_turns_rotation() is None  # 1 < 2
+        session.record_turn({"final_output": "ok"})
+        # Now 2 >= 2, so rotation triggers
+        new = session._check_max_turns_rotation()
+        assert new is not None

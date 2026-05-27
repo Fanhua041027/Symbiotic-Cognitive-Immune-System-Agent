@@ -4,7 +4,6 @@ Supports Slack webhook and generic webhook notifications
 for escalation events and benchmark results.
 """
 
-import json
 from typing import Any
 
 import requests

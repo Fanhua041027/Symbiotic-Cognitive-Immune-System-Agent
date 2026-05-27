@@ -97,40 +97,44 @@ class InMemoryStore:
                 return True
         return False
 
-    def search_antibody(self, query: str) -> dict[str, str] | None:
+    def search_antibody(self, query: str, max_scan: int = 200) -> dict[str, str] | None:
+        """Search antibodies by token overlap. Only scans up to *max_scan* entries."""
         if not self._antibodies:
             return None
 
-        # Token overlap scoring across error_pattern, context, and code
         query_tokens = set(query.lower().split())
         if not query_tokens:
             return None
 
-        scored = []
+        best_score = 0.0
+        best_ab = None
+        scanned = 0
         for ab in self._antibodies:
+            scanned += 1
+            if scanned > max_scan:
+                break
             texts = [
                 ab.get("error_pattern", "").lower(),
                 ab.get("context", "").lower(),
                 ab.get("code", "").lower(),
             ]
-            # Max token overlap ratio across all fields
             score = max(
                 sum(1 for t in query_tokens if t in text) / len(query_tokens)
                 for text in texts
             ) if any(texts) else 0.0
-            if score > 0:
-                scored.append((score, ab))
+            if score > best_score:
+                best_score = score
+                best_ab = ab
+                if score >= 0.9:  # high confidence match, stop early
+                    break
 
-        if not scored:
+        if best_ab is None or best_score <= 0:
             return None
 
-        # Return best match and update last_matched
-        scored.sort(key=lambda x: -x[0])
-        best = scored[0][1]
-        best["last_matched"] = time.time()
+        best_ab["last_matched"] = time.time()
         logger.debug("In-memory search: best score=%.2f for pattern=%s",
-                      scored[0][0], best.get("error_pattern", "?")[:40])
-        return {"code": best["code"], "pattern": best["error_pattern"]}
+                      best_score, best_ab.get("error_pattern", "?")[:40])
+        return {"code": best_ab["code"], "pattern": best_ab["error_pattern"]}
 
     @staticmethod
     def _fmt_time(ts: float) -> str:
